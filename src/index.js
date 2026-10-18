@@ -405,7 +405,7 @@ server.registerTool('open_cutscene', {
 
 server.registerTool('update_cutscene', {
     title: 'Update cutscene',
-    description: 'Renames or retimes a cutscene, or changes how it plays: easing, direction (reverse plays it backwards), and repeats. Repeats play right after it (shown as lighter pseudo-cutscenes) and stop at the next cutscene of the timeline; loop \'inherit\' plays each one like the cutscene, \'alternate\' back and forth, \'continue\' keeps going (movement and rotation add up: use it for cycles like flying, walking, spinning). Cutscenes in the same timeline cannot overlap.',
+    description: 'Renames or retimes a cutscene, or changes how it plays: easing, direction (reverse plays it backwards), and repeats; viewBox pans and zooms the canvas (a camera) during the cutscene. Repeats play right after it (shown as lighter pseudo-cutscenes) and stop at the next cutscene of the timeline; loop \'inherit\' plays each one like the cutscene, \'alternate\' back and forth, \'continue\' keeps going (movement and rotation add up: use it for cycles like flying, walking, spinning). Cutscenes in the same timeline cannot overlap.',
     inputSchema: {
         timelineId: z.string(),
         cutsceneId: z.string(),
@@ -416,6 +416,7 @@ server.registerTool('update_cutscene', {
         direction: z.enum(['forward', 'reverse']).optional(),
         repeat: z.union([z.number().int().min(0).max(99), z.literal('infinite')]).optional().describe('extra plays after the cutscene; "infinite" repeats until the next cutscene or the end of the animation'),
         loop: z.enum(['alternate', 'inherit', 'continue']).optional().describe('how repeats play: inherit = each like the cutscene (default), alternate = back and forth, continue = keep going: movement and rotation add up each time while the rest goes back and forth (e.g. one flap that moves a bird 68px, repeated, flies it across the scene)'),
+        viewBox: z.union([z.tuple([z.number(), z.number(), z.number().positive(), z.number().positive()]), z.null()]).optional().describe('[x, y, width, height] in canvas pixels: the part of the canvas shown once the cutscene ends; it pans/zooms there during the cutscene, with its easing. On a default (Start) cutscene it is where the page starts. Keep the canvas aspect ratio to avoid bars. null removes it. Needs a fixed-size canvas.'),
     },
     annotations: edit,
 }, (args) => run('updateCutscene', args));
