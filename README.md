@@ -1,6 +1,6 @@
 # svgtool MCP server
 
-Lets an AI agent (Claude Code, Claude Desktop, or any MCP client) use React Svg Editor: draw and edit shapes, manage pages, animate with timelines and cutscenes, save documents, and export SVG or PNG.
+Lets an AI agent (Claude Code, Claude Desktop, or any MCP client) use React Svg Editor: draw and edit shapes, manage pages and palettes, animate with timelines and cutscenes, search images, preview work, and export SVG, PNG, JSON or MP4.
 
 The editor keeps its documents in the browser (Redux state and IndexedDB), so the agent works through the editor tab you have open:
 
@@ -28,20 +28,35 @@ cd mcp-server && npm install
 }
 ```
 
-Then start the editor (`npm start` in the project root) and open it in a browser. In development the editor connects to the server by itself and retries every few seconds, so the server and the editor can be started in either order. Ask the agent to run `editor_status` to check the connection.
+Then start the editor from the repository root with `npm run dev:frontend` and open it in a browser. In development the editor connects to the server by itself and retries every few seconds, so the server and the editor can be started in either order. Ask the agent to run `editor_status` to check the connection.
 
 With several editor tabs open, the agent works in the one you focused last.
 
 ## Tools
 
+Each `server.registerTool(...)` call automatically exposes its name, title, description, and input schema through MCP's standard tool listing. No separate listing tool is needed.
+
 | Area | Tools |
 | --- | --- |
-| Connection | `editor_status` |
-| Documents | `list_documents`, `open_document`, `new_document`, `save_document`, `get_document` |
-| Shapes | `add_shape`, `update_shape`, `get_shape`, `delete_shapes`, `select_shapes`, `group_shapes`, `add_gradient` |
-| Canvas and pages | `set_canvas`, `add_page`, `set_active_page` |
-| Animation | `get_timelines`, `add_timeline`, `add_cutscene`, `open_cutscene`, `update_cutscene`, `set_transition` |
-| Output | `export_svg`, `screenshot` (PNG; pass `time` to see a moment of the animation) |
+| Connection | `editor_status` — check whether the editor tab is connected and what is open. |
+| Documents | `list_documents`, `open_document`, `new_document`, `save_document`, `export_document`, `get_document` — browse, load, create, save, export JSON, and inspect the current page. |
+| Images | `search_images` — search clip art, illustrations, vectors, and photos for use on the canvas. |
+| Shapes | `add_shape`, `update_shape`, `get_shape`, `delete_shapes`, `duplicate_shapes`, `select_shapes`, `group_shapes` — draw, inspect, modify, arrange, and remove shapes and groups. Shape properties include modifiers, particles, geometry, text, CSS filters, paint, and transforms. |
+| Reusable styling | `list_colors`, `add_color`, `update_color`, `remove_color`, `add_gradient`, `update_gradient`, `remove_gradient`, `add_svg_filter`, `update_svg_filter`, `remove_svg_filter` — manage shared palette colors and gradients, plus shape-attached outline and inset-shadow filters. |
+| Canvas and pages | `set_canvas`, `add_page`, `remove_page`, `set_active_page` — set the background and dimensions, and organize scenes as pages. |
+| Timelines and cutscenes | `get_timelines`, `add_timeline`, `rename_timeline`, `delete_timeline`, `add_track`, `update_track`, `delete_track`, `add_cutscene`, `open_cutscene`, `update_cutscene`, `delete_cutscene`, `set_transition` — edit animation rows and overlay tracks, shape changes, timing, easing, repeats, camera view, blend modes, and enter/exit effects. |
+| Playback and guides | `set_loop`, `set_play_range`, `play_animation`, `stop_animation`, `set_helpers` — control preview and show or hide editor guides. |
+| Output | `export_svg`, `export_animated_svg`, `export_mp4`, `screenshot` — export static or animated work, or preview a PNG (pass `time` to inspect an animation moment). |
+
+## Best practices
+
+- Start with `get_document` and `get_timelines` so you know the canvas size, existing shapes, palette, pages, and open cutscene before editing.
+- Reuse palette colors and gradients across the document. `add_color` and `add_gradient` return a fill reference such as `url(#id)`; `list_colors` and `get_document` show existing references. Update a shared palette entry to change all shapes that use it.
+- For repeated geometry, add one shape and give it an array modifier in `properties.modifiers`. Choose linear for rows, radial for rings, or random for scatters. `count` is the number of copies in addition to the source shape; `delay` staggers animation across linear copies.
+- Use `properties.particles` for effects such as fireworks, snow, confetti, embers, and sparkles. Set `hideSource` if the emitter itself should not be visible.
+- Group related shapes as soon as they form an object, give the group a clear name, and nest groups for larger assemblies. Animate the group when its parts should move together. A group can contain shapes from only one timeline.
+- For a repeating motion, animate one cycle in a cutscene, then set `repeat` and `loop` with `update_cutscene`. Use `alternate` for back-and-forth motion, `continue` when movement or rotation should accumulate, and `repeatDelay` for a pause. Repeats stop at the next cutscene or the playback-range end.
+- Make a new page for a distinct scene and use cutscenes for changes within a scene. Preview with `play_animation` or `screenshot`, then call `save_document` to persist the work.
 
 Changes stay in the tab until `save_document` is called, as in the editor itself. `open_document` and `new_document` replace the open document, and anything unsaved is lost.
 
