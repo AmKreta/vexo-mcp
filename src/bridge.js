@@ -132,7 +132,7 @@ export class EditorBridge {
     /** Runs a command in the active editor tab. */
     call(method, params = {}) {
         if (this.startError) {
-            throw new BridgeError(`The editor bridge could not listen on ${this.host}:${this.port} (${this.startError.message}). Another svgtool MCP server may be running; set SVG_EDITOR_BRIDGE_PORT to use a different port, and REACT_APP_MCP_BRIDGE_URL in the editor to match.`);
+            throw new BridgeError(`The editor bridge could not listen on ${this.host}:${this.port} (${this.startError.message}). Another svgtool MCP server may be running; set SVG_EDITOR_BRIDGE_PORT to use a different port, and VITE_MCP_BRIDGE_URL in the editor to match.`);
         }
         const client = this.clients[this.clients.length - 1];
         if (!client) {

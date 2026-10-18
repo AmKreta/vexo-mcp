@@ -51,8 +51,8 @@ Changes stay in the tab until `save_document` is called, as in the editor itself
 | --- | --- | --- | --- |
 | server | `SVG_EDITOR_BRIDGE_PORT` | `7341` | port the editor connects to |
 | server | `SVG_EDITOR_ALLOWED_ORIGINS` | none | comma-separated extra sites allowed to connect; localhost is always allowed |
-| editor | `REACT_APP_MCP_BRIDGE_URL` | `ws://127.0.0.1:7341` | must match the server's port |
-| editor | `REACT_APP_MCP_BRIDGE` | on in development | `true` to connect from a production build, `false` to never connect |
+| editor | `VITE_MCP_BRIDGE_URL` | `ws://127.0.0.1:7341` | must match the server's port |
+| editor | `VITE_MCP_BRIDGE` | on in development | `true` to connect from a production build, `false` to never connect |
 
 The websocket only listens on 127.0.0.1, and it refuses browser pages from sites other than localhost unless you list them.
 
