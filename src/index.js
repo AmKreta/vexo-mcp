@@ -101,7 +101,8 @@ const properties = z.object({
     height: z.number().optional().describe('rectangle, image'),
     rx: z.number().optional().describe('rectangle corner radius (ry follows it unless given)'),
     ry: z.number().optional().describe('rectangle vertical corner radius'),
-    points: z.array(point).optional().describe('line (2 points), polyline, polygon, path. A path draws a cubic Bézier: the first point is the start and the rest are read in threes (control 1, control 2, end), so give 1 + 3n points'),
+    points: z.array(point).optional().describe('line (2 points), polyline, polygon. For a path prefer `d`; points alone draw a cubic Bézier: the first point is the start and the rest are read in threes (control 1, control 2, end), so give 1 + 3n points'),
+    d: z.string().optional().describe('path: SVG path data with any commands — M/L/H/V/C/S/Q/T/A/Z, absolute or relative, e.g. "M 10 80 C 40 10, 65 10, 95 80 S 150 150, 180 80 A 30 30 0 0 1 240 80 Z". Every node stays editable in the editor'),
     text: z.string().optional(),
     fontSize: z.number().optional(),
     fontWeight: z.number().optional().describe('100–900'),
@@ -293,7 +294,7 @@ server.registerTool('add_shape', {
     description: [
         'Draws a shape on the current page and selects it. New shapes default to a 1px black stroke and a transparent fill.',
         'circle/ellipse: x, y = center (defaults radius 40 / radiusX 80, radiusY 40). rectangle/image: x, y = top-left (defaults 60×60 / 200×200).',
-        'text: x, y = baseline start. line/polyline/polygon/path: give `points`; x and y are ignored.',
+        'text: x, y = baseline start. line/polyline/polygon: give `points`; path: give `properties.d` (SVG path data); x and y are ignored.',
     ].join(' '),
     inputSchema: {
         type: shapeType,
