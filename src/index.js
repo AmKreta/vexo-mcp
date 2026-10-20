@@ -18,6 +18,9 @@ const server = new McpServer(
         instructions: [
             'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search clip art, illustrations, vectors and photos; manage palettes; animate with timelines, tracks and cutscenes; preview and export SVG, PNG, JSON or MP4.',
             'The editor must be open in a browser (npm run dev:frontend, then http://localhost:3000); call editor_status if a tool says no editor is connected.',
+            'Use batch_edit to build a complete object per call, inspect after each meaningful pass, then refine in batches. Batch references ($name) allow grouping and editing new shapes without waiting for IDs.',
+            'Use list_sprites, create_sprite_sheet, add_sprite_page and set_editor for project-wide vector sprites. Draw each animation using the normal tools; place_sprite adds an instance plus a timed clip. Instances expose controls; sprites may nest but cannot include themselves.',
+            'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
             'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
             'Use add_shape and update_shape for geometry, text, paint, transforms, CSS filters, modifiers and particles. Use add_svg_filter for outline or inset-shadow effects attached to a shape; palette colors and gradients can be reused as url(#id) fills.',
             'Animation: each timeline is a row of cutscenes. Shape edits are recorded into the cutscene that is open on the canvas, as changes from the previous cutscene; during the cutscene the shapes animate from the previous state to the new one.',
@@ -37,7 +40,7 @@ const server = new McpServer(
 async function run(method, params = {}) {
     try {
         const result = await bridge.call(method, params);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { ...(method === 'batchEdit' && result?.ok === false ? {isError:true} : {}), content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     } catch (err) {
         return { isError: true, content: [{ type: 'text', text: err.message }] };
     }
@@ -91,6 +94,11 @@ const particles = z.object({
 });
 
 const properties = z.object({
+    overlapOperation: z.enum(['add', 'subtract', 'union', 'intersection']).optional().describe('Group: non-destructive combination, first child supplies the fill; add restores editable children.'),
+    containerId: z.string().optional().describe('Group: ID of a direct child used as the overflow container; empty string clears it.'),
+    overflow: z.enum(['visible', 'hidden']).optional().describe('Group: hidden clips to the selected container shape.'),
+    stackOrder: z.number().finite().optional().describe('Explicit stacking order; greater values appear in front. Selection does not change it.'),
+    textBox: z.object({width:z.number().positive(),lineHeight:z.number().positive().optional(),maxLines:z.number().int().positive().optional()}).optional().describe('Text wrapping width, optional line height and line limit.'),
     name: z.string().optional().describe('label shown in the editor'),
     x: z.number().optional().describe('circle/ellipse: center x; rectangle/image: left; text: start of the baseline'),
     y: z.number().optional().describe('circle/ellipse: center y; rectangle/image: top; text: baseline'),
@@ -625,6 +633,43 @@ server.registerTool('set_transition', {
     inputSchema: { shapeId: z.string(), kind: z.enum(['enter', 'exit']), transition },
     annotations: edit,
 }, (args) => run('setTransition', args));
+
+const batchAdd = z.object({type:shapeType,x:z.number().optional(),y:z.number().optional(),points:z.array(point).optional(),src:z.string().optional(),properties:properties.optional(),style:style.optional()});
+const batchRef = z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).optional();
+server.registerTool('batch_edit', {
+    title:'Batch edit artwork',
+    description:'Apply 1–50 ordered edits in one round trip. Prefer coherent passes of 10–30 edits. Each add/group can name its returned ID with ref; later id/ids use "$ref". References exist only in this batch; the result returns actual IDs for later calls. On failure, completed work remains: retry only unfinished edits. Build a rough composition, inspect it, then batch refinements.',
+    inputSchema:{operations:z.array(z.union([
+        z.object({tool:z.literal('add_shape'),args:batchAdd,ref:batchRef}),
+        z.object({tool:z.literal('update_shape'),args:z.object({id:z.string(),properties:properties.optional(),style:style.optional()}),ref:batchRef}),
+        z.object({tool:z.literal('group_shapes'),args:z.object({ids:z.array(z.string()).min(1),name:z.string().optional()}),ref:batchRef}),
+        z.object({tool:z.literal('delete_shapes'),args:z.object({ids:z.array(z.string()).min(1)}),ref:batchRef}),
+    ])).min(1).max(50)},annotations:{...edit,destructiveHint:true},
+},args=>run('batchEdit',args));
+
+const spriteSize=z.number().positive().max(8192);
+const controlValue=z.union([z.string(),z.number().finite(),z.boolean()]);
+const control=z.object({id:z.string().optional(),name:z.string().min(1),type:z.enum(['number','text','boolean']),defaultValue:controlValue,targetShapeId:z.string().optional(),min:z.number().optional(),max:z.number().optional(),step:z.number().positive().optional()});
+const features=[
+    ['place_project_file','Place project image','Place an imported SVG, PNG or other image file onto the current scene or sprite canvas.','placeProjectFile',{fileId:z.string(),x:z.number().optional(),y:z.number().optional(),width:z.number().positive().optional(),height:z.number().positive().optional()}],
+    ['bring_to_front','Bring to front','Bring selected IDs to the front. temporary=true lifts them only while editing; selecting another shape restores the normal order.','bringToFront',{ids:z.array(z.string()).min(1),temporary:z.boolean().optional()}],
+    ['update_sprite_page','Rename sprite animation','Rename a sprite animation page without changing its identity or existing scene references.','updateSpritePage',{sheetId:z.string(),pageId:z.string(),name:z.string().min(1)}],
+    ['list_sprites','List project sprites','Project-wide sprite assets, animations and controls. Open an animation with set_editor to draw it with normal shape and timeline tools.','listSprites',{includeDocuments:z.boolean().optional().describe('Return full editable animation documents only when needed; false by default.')},true],
+    ['create_sprite_sheet','Create sprite sheet','Create an editable vector sprite in the project. No imported image is required.','createSpriteSheet',{name:z.string().min(1),width:spriteSize.optional(),height:spriteSize.optional(),folder:z.string().optional()}],
+    ['update_sprite_sheet','Update sprite sheet','Rename, move into a project folder, or set sprite dimensions across all its animation pages.','updateSpriteSheet',{sheetId:z.string(),name:z.string().min(1).optional(),width:spriteSize.optional(),height:spriteSize.optional(),folder:z.string().optional()}],
+    ['add_sprite_page','Add sprite animation','One sprite page is one animation, with the full drawing tools and timelines.','addSpritePage',{sheetId:z.string(),name:z.string().optional()}],
+    ['set_sprite_controls','Set sprite controls','Replace animation controls. Keep existing IDs to preserve instance overrides. Number controls rotate a target shape; text controls replace text; boolean controls toggle visibility. Get shape IDs by editing the sprite page.','setSpriteControls',{sheetId:z.string(),pageId:z.string(),controls:z.array(control).max(100)}],
+    ['set_editor','Switch editor','Open the scene editor or a specific sprite animation. Subsequent drawing, batch and timeline tools act on this visible editor.','setEditor',{view:z.enum(['scene','spritesheet']),sheetId:z.string().optional(),pageId:z.string().optional()}],
+    ['place_sprite','Place animated sprite','Reference a project sprite on the canvas and automatically create its animation clip in the current timeline. Works in scenes and other sprites; rejects direct and indirect self-inclusion. Returns shape and owning clip IDs.','placeSprite',{sheetId:z.string(),pageId:z.string().optional(),x:z.number().optional(),y:z.number().optional()}],
+    ['update_sprite_instance','Update sprite controls on canvas','Change only this instance’s control values, keyed by control IDs. Original sprite artwork stays editable in its source.','updateSpriteInstance',{id:z.string(),variables:z.record(z.string(),controlValue)}],
+    ['trim_sprite_clip','Trim sprite animation','Open the owning clip first. Set the source animation start/end in seconds; its timeline clip length follows automatically and later clips shift to keep their gaps.','trimSpriteClip',{timelineId:z.string(),cutsceneId:z.string(),shapeId:z.string(),start:z.number().min(0),end:z.number().positive()}],
+    ['list_project_files','List project files','List file metadata and project folders, without embedding file data in the reply.','listProjectFiles',{},true],
+    ['create_project_folder','Create project folder','Create a project folder; use / for nested folders. Sprite sheets can be moved there with update_sprite_sheet.','createProjectFolder',{path:z.string().min(1)}],
+    ['add_project_file','Add project file','Store an SVG, PNG or other file in the project filesystem from a data URL. Sprite sheets are drawn with vector tools; this imports ordinary files.','addProjectFile',{name:z.string().min(1),dataUrl:z.string().startsWith('data:').max(28000000),folder:z.string().optional()}],
+];
+for(const [name,title,description,method,inputSchema,readOnly] of features) {
+    server.registerTool(name,{title,description,inputSchema,annotations:readOnly?{readOnlyHint:true}:edit},args=>run(method,args));
+}
 
 await bridge.start();
 await server.connect(new StdioServerTransport());

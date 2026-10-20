@@ -76,3 +76,71 @@ The websocket only listens on 127.0.0.1, and it refuses browser pages from sites
 ```sh
 npm test
 ```
+
+## Sprite and batch workflows
+
+The bridge now supports the scene editor and sprite sheet editor. `get_document` identifies the
+active workspace and lists project sprites, animation pages, controls, folders and file metadata.
+Project JSON export includes the whole project, even while a sprite page is open.
+
+| Area | New tools |
+| --- | --- |
+| Batching | `batch_edit` — 1–50 ordered add/update/group/delete operations in one bridge call. |
+| Sprites | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `update_sprite_page`, `set_editor`. |
+| Controls and placement | `set_sprite_controls`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`. |
+| Filesystem | `create_project_folder`, `list_project_files`, `add_project_file`, `place_project_file`. |
+| Stacking | `bring_to_front` — permanent, or temporary until another shape is selected. |
+
+### Build, inspect, refine
+
+Prefer one batch per coherent object or layer (usually 10–30 operations). An operation can name
+its result with `ref`; later ID fields use `$ref`. Returned `refs` contain real IDs for later calls.
+Text strings such as `$price` remain literal. References work in `id`, `ids`, `containerId`, and
+`targetShapeId` fields. They are scoped to one batch and must refer to earlier successful edits.
+
+```json
+{
+  "operations": [
+    { "tool": "add_shape", "ref": "body", "args": { "type": "rectangle", "x": 100, "y": 100, "properties": { "width": 80, "height": 60 }, "style": { "fill": "#6c5cff", "strokeWidth": 0 } } },
+    { "tool": "add_shape", "ref": "eye", "args": { "type": "circle", "x": 125, "y": 120, "properties": { "radius": 5 }, "style": { "fill": "white", "strokeWidth": 0 } } },
+    { "tool": "group_shapes", "ref": "robot", "args": { "ids": ["$body", "$eye"], "name": "Robot" } }
+  ]
+}
+```
+
+Batch edits use the same command validation and timeline ownership rules as single edits. They
+stop on the first failure and report completed operations, real IDs, the failing index and remaining
+count. Completed work stays applied; retry only unfinished work. Edits stop if the document,
+page or editing clip changes. The editor paints between small chunks to remain responsive.
+
+### Draw a reusable sprite
+
+1. `create_sprite_sheet` with a name, frame width/height, and optional folder.
+2. `set_editor` with `view: "spritesheet"`, the sheet ID and animation page ID.
+3. Draw with `batch_edit`, then animate with normal timeline/cutscene tools. Use `add_sprite_page`
+   for another animation; `update_sprite_page` renames one.
+4. `set_sprite_controls` exposes number (target rotation), text (target text), and boolean (target
+   visibility) controls. This replaces the page's controls; retain IDs to preserve overrides.
+5. Switch to `view: "scene"` and call `place_sprite`. It references the source artwork and creates
+   an animation clip automatically. Sprites can also be placed in other sprites; direct and indirect
+   self-inclusion are rejected.
+6. `update_sprite_instance` changes only that instance's control values. To trim playback, open
+   its owning clip, then use `trim_sprite_clip`; the clip duration follows the source range.
+
+`list_sprites` returns metadata by default. Use `includeDocuments: true` only when full sprite
+animation documents are needed. Frame dimensions apply to every animation page in a sheet.
+`add_project_file` accepts a data URL; `place_project_file` places an imported image by file ID.
+
+### Groups and text
+
+`update_shape.properties` now exposes:
+
+- `overlapOperation`: `add`, `subtract`, `union`, `intersection`. Operations are non-destructive;
+  original children stay editable and the first child's fill paints combined areas.
+- `containerId`: direct child used as the group's container; `""` clears it.
+- `overflow`: `visible` or `hidden`; hidden clips against the selected container.
+- `stackOrder`: explicit stacking position. Selection itself never changes stacking.
+- `textBox`: `{width, lineHeight?, maxLines?}` for wrapped text and speech bubbles.
+
+Restart your MCP client/server connection to load the updated tool catalog, and refresh the editor
+to load the updated bridge commands. Existing drawing and timeline tool names remain available.
