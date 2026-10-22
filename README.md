@@ -23,7 +23,10 @@ cd mcp-server && npm install
 ```json
 {
   "mcpServers": {
-    "svgtool": { "command": "node", "args": ["/absolute/path/to/svgEditor/mcp-server/src/index.js"] }
+    "svgtool": {
+      "command": "node",
+      "args": ["/absolute/path/to/svgEditor/mcp-server/src/index.js"]
+    }
   }
 }
 ```
@@ -36,17 +39,17 @@ With several editor tabs open, the agent works in the one you focused last.
 
 Each `server.registerTool(...)` call automatically exposes its name, title, description, and input schema through MCP's standard tool listing. No separate listing tool is needed.
 
-| Area | Tools |
-| --- | --- |
-| Connection | `editor_status` — check whether the editor tab is connected and what is open. |
-| Documents | `list_documents`, `open_document`, `new_document`, `save_document`, `export_document`, `get_document` — browse, load, create, save, export JSON, and inspect the current page. |
-| Images | `search_images` — search clip art, illustrations, vectors, and photos for use on the canvas. |
-| Shapes | `add_shape`, `update_shape`, `get_shape`, `delete_shapes`, `duplicate_shapes`, `select_shapes`, `group_shapes` — draw, inspect, modify, arrange, and remove shapes and groups. Shape properties include modifiers, particles, geometry, text, CSS filters, paint, and transforms. |
-| Reusable styling | `list_colors`, `add_color`, `update_color`, `remove_color`, `add_gradient`, `update_gradient`, `remove_gradient`, `add_svg_filter`, `update_svg_filter`, `remove_svg_filter` — manage shared palette colors and gradients, plus shape-attached outline and inset-shadow filters. |
-| Canvas and pages | `set_canvas`, `add_page`, `remove_page`, `set_active_page` — set the background and dimensions, and organize scenes as pages. |
+| Area                    | Tools                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connection              | `editor_status` — check whether the editor tab is connected and what is open.                                                                                                                                                                                                                                                                   |
+| Documents               | `list_documents`, `open_document`, `new_document`, `save_document`, `export_document`, `get_document` — browse, load, create, save, export JSON, and inspect the current page.                                                                                                                                                                  |
+| Images                  | `search_images` — search clip art, illustrations, vectors, and photos for use on the canvas.                                                                                                                                                                                                                                                    |
+| Shapes                  | `add_shape`, `update_shape`, `get_shape`, `delete_shapes`, `duplicate_shapes`, `select_shapes`, `group_shapes` — draw, inspect, modify, arrange, and remove shapes and groups. Shape properties include modifiers, particles, geometry, text, CSS filters, paint, and transforms.                                                               |
+| Reusable styling        | `list_colors`, `add_color`, `update_color`, `remove_color`, `add_gradient`, `update_gradient`, `remove_gradient`, `add_svg_filter`, `update_svg_filter`, `remove_svg_filter` — manage shared palette colors and gradients, plus shape-attached outline and inset-shadow filters.                                                                |
+| Canvas and pages        | `set_canvas`, `add_page`, `remove_page`, `set_active_page` — set the background and dimensions, and organize scenes as pages.                                                                                                                                                                                                                   |
 | Timelines and cutscenes | `get_timelines`, `add_timeline`, `rename_timeline`, `delete_timeline`, `add_track`, `update_track`, `delete_track`, `add_cutscene`, `open_cutscene`, `update_cutscene`, `delete_cutscene`, `set_transition` — edit animation rows and overlay tracks, shape changes, timing, easing, repeats, camera view, blend modes, and enter/exit effects. |
-| Playback and guides | `set_loop`, `set_play_range`, `play_animation`, `stop_animation`, `set_helpers` — control preview and show or hide editor guides. |
-| Output | `export_svg`, `export_animated_svg`, `export_mp4`, `screenshot` — export static or animated work, or preview a PNG (pass `time` to inspect an animation moment). |
+| Playback and guides     | `set_loop`, `set_play_range`, `play_animation`, `stop_animation`, `set_helpers` — control preview and show or hide editor guides.                                                                                                                                                                                                               |
+| Output                  | `export_svg`, `export_animated_svg`, `export_mp4`, `screenshot` — export static or animated work, or preview a PNG (pass `time` to inspect an animation moment).                                                                                                                                                                                |
 
 ## Best practices
 
@@ -62,12 +65,12 @@ Changes stay in the tab until `save_document` is called, as in the editor itself
 
 ## Configuration
 
-| Where | Variable | Default | |
-| --- | --- | --- | --- |
-| server | `SVG_EDITOR_BRIDGE_PORT` | `7341` | port the editor connects to |
-| server | `SVG_EDITOR_ALLOWED_ORIGINS` | none | comma-separated extra sites allowed to connect; localhost is always allowed |
-| editor | `VITE_MCP_BRIDGE_URL` | `ws://127.0.0.1:7341` | must match the server's port |
-| editor | `VITE_MCP_BRIDGE` | on in development | `true` to connect from a production build, `false` to never connect |
+| Where  | Variable                     | Default               |                                                                             |
+| ------ | ---------------------------- | --------------------- | --------------------------------------------------------------------------- |
+| server | `SVG_EDITOR_BRIDGE_PORT`     | `7341`                | port the editor connects to                                                 |
+| server | `SVG_EDITOR_ALLOWED_ORIGINS` | none                  | comma-separated extra sites allowed to connect; localhost is always allowed |
+| editor | `VITE_MCP_BRIDGE_URL`        | `ws://127.0.0.1:7341` | must match the server's port                                                |
+| editor | `VITE_MCP_BRIDGE`            | on in development     | `true` to connect from a production build, `false` to never connect         |
 
 The websocket only listens on 127.0.0.1, and it refuses browser pages from sites other than localhost unless you list them.
 
@@ -83,13 +86,13 @@ The bridge now supports the scene editor and sprite sheet editor. `get_document`
 active workspace and lists project sprites, animation pages, controls, folders and file metadata.
 Project JSON export includes the whole project, even while a sprite page is open.
 
-| Area | New tools |
-| --- | --- |
-| Batching | `batch_edit` — 1–50 ordered add/update/group/delete operations in one bridge call. |
-| Sprites | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `update_sprite_page`, `set_editor`. |
-| Controls and placement | `set_sprite_controls`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`. |
-| Filesystem | `create_project_folder`, `list_project_files`, `add_project_file`, `place_project_file`. |
-| Stacking | `bring_to_front` — permanent, or temporary until another shape is selected. |
+| Area                   | New tools                                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Batching               | `batch_edit` — 1–50 ordered add/update/group/delete operations in one bridge call.                                   |
+| Sprites                | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `update_sprite_page`, `set_editor`. |
+| Controls and placement | `set_sprite_controls`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`.                                 |
+| Filesystem             | `create_project_folder`, `list_project_files`, `add_project_file`, `place_project_file`.                             |
+| Stacking               | `bring_to_front` — permanent, or temporary until another shape is selected.                                          |
 
 ### Build, inspect, refine
 
@@ -101,9 +104,33 @@ Text strings such as `$price` remain literal. References work in `id`, `ids`, `c
 ```json
 {
   "operations": [
-    { "tool": "add_shape", "ref": "body", "args": { "type": "rectangle", "x": 100, "y": 100, "properties": { "width": 80, "height": 60 }, "style": { "fill": "#6c5cff", "strokeWidth": 0 } } },
-    { "tool": "add_shape", "ref": "eye", "args": { "type": "circle", "x": 125, "y": 120, "properties": { "radius": 5 }, "style": { "fill": "white", "strokeWidth": 0 } } },
-    { "tool": "group_shapes", "ref": "robot", "args": { "ids": ["$body", "$eye"], "name": "Robot" } }
+    {
+      "tool": "add_shape",
+      "ref": "body",
+      "args": {
+        "type": "rectangle",
+        "x": 100,
+        "y": 100,
+        "properties": { "width": 80, "height": 60 },
+        "style": { "fill": "#6c5cff", "strokeWidth": 0 }
+      }
+    },
+    {
+      "tool": "add_shape",
+      "ref": "eye",
+      "args": {
+        "type": "circle",
+        "x": 125,
+        "y": 120,
+        "properties": { "radius": 5 },
+        "style": { "fill": "white", "strokeWidth": 0 }
+      }
+    },
+    {
+      "tool": "group_shapes",
+      "ref": "robot",
+      "args": { "ids": ["$body", "$eye"], "name": "Robot" }
+    }
   ]
 }
 ```
