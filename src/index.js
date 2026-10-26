@@ -19,17 +19,18 @@ const server = new McpServer(
   { name: 'svgtool', version: '0.1.0' },
   {
     instructions: [
-      'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search clip art, illustrations, vectors and photos; manage palettes; animate with timelines, tracks and cutscenes; preview and export SVG, PNG, JSON or MP4.',
+      'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search clip art, illustrations, vectors and photos; manage palettes; animate with timelines and clips; preview and export SVG, PNG, JSON or MP4.',
       'The editor must be open in a browser (npm run dev:frontend, then http://localhost:3000); call editor_status if a tool says no editor is connected.',
       'Use batch_edit to build a complete object per call, inspect after each meaningful pass, then refine in batches. Batch references ($name) allow grouping and editing new shapes without waiting for IDs.',
       'Use list_sprites, create_sprite_sheet, add_sprite_page and set_editor for project-wide vector sprites. Draw each animation using the normal tools; place_sprite adds an instance plus a timed clip. Instances expose controls; sprites may nest but cannot include themselves.',
       'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
       'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
       'Use add_shape and update_shape for geometry, text, paint, transforms, CSS filters, modifiers and particles. Use add_svg_filter for outline or inset-shadow effects attached to a shape; palette colors and gradients can be reused as url(#id) fills.',
-      'Animation: each timeline is a row of cutscenes. Shape edits are recorded into the cutscene that is open on the canvas, as changes from the previous cutscene; during the cutscene the shapes animate from the previous state to the new one.',
-      'Additional tracks animate values on shapes owned by a timeline; use add_track, add_cutscene, then open_cutscene to edit that track. Blend modes decide how each track combines with tracks above it.',
-      'So to animate: build the starting scene in the default "Start" cutscene, call add_cutscene, then move/restyle/add/delete shapes; repeat. Use screenshot with `time` to check a moment of the animation.',
-      'Best practices: inspect get_document and get_timelines first; use the canvas pixel size for coordinates. Group related shapes as soon as they form an object, name groups clearly, nest groups for larger objects, and animate the group. A group can contain only shapes from the same timeline.',
+      'Animation: each timeline is a row of clips (the API tool names retain "cutscene"). Shape edits are recorded into the open clip as changes from the previous clip; during it, the object animates from the previous state to the new one.',
+      'Each object has one timeline. Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
+      'To animate: draw the starting artwork, call add_timeline with shapeId, then add_cutscene and move or restyle that object. There is no implicit Start clip. Use screenshot with `time` to inspect an animation moment.',
+      'Best practices: inspect get_document and get_timelines first; use the canvas pixel size for coordinates. Group related shapes before adding object timelines, name groups clearly, nest groups for larger objects, and animate the group. A group and its children may each have their own animation timelines.',
+      'get_document returns hiddenShapeIds. Use set_layer_visibility to show or hide a page layer without changing opacity or creating a clip. Hiding a group hides its descendants.',
       'Reuse styling: add a palette color or gradient, then reuse its `fill` reference (`url(#id)`) across the document. list_colors and get_document show existing entries; update a shared color or gradient instead of changing every shape that uses it.',
       'Repeated geometry: use one source shape with `properties.modifiers` and an array modifier (linear rows, radial rings, or random scatters) instead of drawing copies. `count` is the number of extra copies. Use `delay` for staggered motion.',
       'Effects: use `properties.particles` for bursts, falling confetti or snow, rising embers, and drifting sparkles instead of drawing many particles by hand. Set `hideSource` when the emitter shape should not show.',
@@ -361,7 +362,7 @@ server.registerTool(
   'list_documents',
   {
     title: 'List documents',
-    description: 'Documents saved in this browser, plus the built-in examples.',
+    description: 'Documents saved in this browser.',
     annotations: readOnly,
   },
   () => run('listDocuments'),
@@ -372,7 +373,7 @@ server.registerTool(
   {
     title: 'Open document',
     description:
-      'Opens a saved document or example in the editor. Unsaved changes to the current document are lost.',
+      'Opens a saved document in the editor. Unsaved changes to the current document are lost.',
     inputSchema: { id: z.string() },
     annotations: { ...edit, destructiveHint: true },
   },
@@ -424,7 +425,7 @@ server.registerTool(
   {
     title: 'Get document',
     description:
-      'The current page: canvas, color and gradient palettes, SVG filters, playback range, selection, editing cutscene and shapes (styles show values changed from defaults). render:false shapes are group children.',
+      'The current page: canvas, color and gradient palettes, SVG filters, playback range, hidden layers, selection, editing clip and shapes (styles show values changed from defaults). render:false shapes are group children.',
     inputSchema: { includeShapes: z.boolean().optional().describe('default true') },
     annotations: readOnly,
   },
@@ -513,15 +514,15 @@ server.registerTool(
   {
     title: 'Add SVG filter',
     description:
-      'Attaches an outline or inset shadow SVG effect to a shape. CSS filters are available through update_shape.',
+      'Attaches an outline, inset shadow or drop shadow SVG effect to a shape. CSS filters are available through update_shape.',
     inputSchema: {
       shapeId: z.string(),
-      type: z.enum(['outline', 'insetShadow']),
+      type: z.enum(['outline', 'insetShadow', 'dropShadow']),
       color: z.string().optional(),
       blur: z.number().min(0).optional(),
       radius: z.number().min(0).optional().describe('outline thickness'),
-      xOffset: z.number().optional().describe('inset shadow horizontal offset'),
-      yOffset: z.number().optional().describe('inset shadow vertical offset'),
+      xOffset: z.number().optional().describe('shadow horizontal offset'),
+      yOffset: z.number().optional().describe('shadow vertical offset'),
     },
     annotations: edit,
   },
@@ -532,11 +533,11 @@ server.registerTool(
   'update_svg_filter',
   {
     title: 'Update SVG filter',
-    description: 'Changes an outline or inset shadow already attached to a shape.',
+    description: 'Changes an outline, inset shadow or drop shadow already attached to a shape.',
     inputSchema: {
       shapeId: z.string(),
       id: z.string(),
-      type: z.enum(['outline', 'insetShadow']),
+      type: z.enum(['outline', 'insetShadow', 'dropShadow']),
       color: z.string().optional(),
       blur: z.number().min(0).optional(),
       radius: z.number().min(0).optional(),
@@ -553,8 +554,12 @@ server.registerTool(
   {
     title: 'Remove SVG filter',
     description:
-      'Detaches an outline or inset shadow from a shape and removes that filter from the page.',
-    inputSchema: { shapeId: z.string(), id: z.string(), type: z.enum(['outline', 'insetShadow']) },
+      'Detaches an outline, inset shadow or drop shadow from a shape and removes that filter from the page.',
+    inputSchema: {
+      shapeId: z.string(),
+      id: z.string(),
+      type: z.enum(['outline', 'insetShadow', 'dropShadow']),
+    },
     annotations: { ...edit, destructiveHint: true },
   },
   (args) => run('removeSvgFilter', args),
@@ -644,11 +649,23 @@ server.registerTool(
   {
     title: 'Group shapes',
     description:
-      'Groups top-level shapes so they move, transform and animate together, and shows them as one named item in the layers panel. Group as much as possible: every object made of several shapes (a tree, a cloud, a car and its wheels) should be one named group. Shapes must be in the same timeline. Returns the new group.',
+      'Groups top-level shapes so they move and transform together, and shows them as one named item in Layers. Group related shapes before adding object timelines whenever possible. Returns the new group.',
     inputSchema: { ids: z.array(z.string()).min(1), name: z.string().optional() },
     annotations: edit,
   },
   (args) => run('groupShapes', args),
+);
+
+server.registerTool(
+  'set_layer_visibility',
+  {
+    title: 'Set layer visibility',
+    description:
+      'Shows or hides a page layer without changing opacity or creating a clip. Hiding a group also hides its descendants; show the hidden group to make its children visible again.',
+    inputSchema: { id: z.string(), visible: z.boolean() },
+    annotations: edit,
+  },
+  (args) => run('setLayerVisibility', args),
 );
 
 server.registerTool(
@@ -730,9 +747,9 @@ server.registerTool(
   {
     title: 'Set canvas',
     description:
-      'Sets the page background and shape. A canvas with an aspect ratio has a fixed resolution (1:1 = 1080×1080, 3:4 = 1080×1440, 4:3 = 1440×1080) that coordinates are in; "fill" makes it fill the editor, sized by width/height (percent of the drawing area). get_document reports the pixel size.',
+      'Sets the page background and shape. A canvas with an aspect ratio has a fixed resolution (1:1 = 1080×1080, 3:4 = 1080×1440, 4:3 = 1440×1080, 9:16 = 1080×1920, 16:9 = 1920×1080) that coordinates are in; "fill" makes it fill the editor, sized by width/height (percent of the drawing area). get_document reports the pixel size.',
     inputSchema: {
-      aspectRatio: z.enum(['1:1', '3:4', '4:3', 'fill']).optional(),
+      aspectRatio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', 'fill']).optional(),
       backgroundColor: z.string().optional(),
       width: z.number().positive().optional().describe('percent'),
       height: z.number().positive().optional().describe('percent'),
@@ -874,51 +891,30 @@ server.registerTool(
   {
     title: 'Add timeline',
     description:
-      'Adds a timeline (an independent animation row that owns the shapes added in it) and opens its "Start" cutscene for editing.',
-    inputSchema: { name: z.string().optional() },
+      'Creates or opens the one timeline belonging to shapeId. A group or sprite is one object. Omit shapeId for an unassigned row, then bind it with update_timeline. New timelines contain no clips.',
+    inputSchema: {
+      name: z.string().optional(),
+      shapeId: z.string().optional(),
+    },
     annotations: edit,
   },
   (args) => run('addTimeline', args),
 );
-
 server.registerTool(
-  'add_track',
+  'update_timeline',
   {
-    title: 'Add animation track',
+    title: 'Update timeline',
     description:
-      'Adds an empty overlay track under a timeline or one of its tracks. Add cutscenes to the new track to animate existing shapes independently.',
-    inputSchema: { rowId: z.string().describe('timeline or track id from get_timelines') },
-    annotations: edit,
-  },
-  (args) => run('addTrack', args),
-);
-
-server.registerTool(
-  'update_track',
-  {
-    title: 'Update animation track',
-    description:
-      'Renames an additional track or sets how it blends with the tracks above: add, keepFirst, or keepLast.',
+      'Changes the name or mute state, or assigns shapeId to an unassigned timeline. An assigned shape cannot be replaced. A shape can have only one timeline.',
     inputSchema: {
-      trackId: z.string(),
-      name: z.string().min(1).optional(),
-      blend: z.enum(['add', 'keepFirst', 'keepLast']).optional(),
+      timelineId: z.string(),
+      shapeId: z.string().optional(),
+      name: z.string().optional(),
+      muted: z.boolean().optional(),
     },
     annotations: edit,
   },
-  (args) => run('updateTrack', args),
-);
-
-server.registerTool(
-  'delete_track',
-  {
-    title: 'Delete animation track',
-    description:
-      'Deletes an additional track and its cutscenes. Use delete_timeline for a top-level timeline.',
-    inputSchema: { trackId: z.string() },
-    annotations: { ...edit, destructiveHint: true },
-  },
-  (args) => run('deleteTrack', args),
+  (args) => run('updateTimeline', args),
 );
 
 server.registerTool(
@@ -988,7 +984,7 @@ server.registerTool(
         ])
         .optional()
         .describe(
-          '[x, y, width, height] in canvas pixels: the part of the canvas shown once the cutscene ends; it pans/zooms there during the cutscene, with its easing. On a default (Start) cutscene it is where the page starts. Keep the canvas aspect ratio to avoid bars. null removes it. Needs a fixed-size canvas.',
+          '[x, y, width, height] in canvas pixels: the part of the canvas shown once the clip ends; it pans/zooms there during the clip, with its easing. Keep the canvas aspect ratio to avoid bars. null removes it. Needs a fixed-size canvas.',
         ),
     },
     annotations: edit,
@@ -1011,7 +1007,8 @@ server.registerTool(
   'delete_timeline',
   {
     title: 'Delete timeline',
-    description: 'Deletes a timeline and its cutscenes. A page keeps at least one timeline.',
+    description:
+      'Deletes a timeline and its clips, keeping the page artwork. A page may have no timelines.',
     inputSchema: { timelineId: z.string() },
     annotations: { ...edit, destructiveHint: true },
   },
@@ -1023,7 +1020,7 @@ server.registerTool(
   {
     title: 'Delete cutscene',
     description:
-      'Deletes a cutscene and the changes it makes. The "Start" cutscene of a timeline can\'t be deleted.',
+      'Deletes a clip and the changes it makes. Legacy imported starting clips remain protected; delete their timeline instead.',
     inputSchema: { timelineId: z.string(), cutsceneId: z.string() },
     annotations: { ...edit, destructiveHint: true },
   },
