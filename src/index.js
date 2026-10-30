@@ -26,6 +26,8 @@ const server = new McpServer(
       'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
       'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
       'Use add_shape and update_shape for geometry, text, paint, transforms, CSS filters, modifiers and particles. Use add_svg_filter for outline or inset-shadow effects attached to a shape; palette colors and gradients can be reused as url(#id) fills.',
+      'Rigging: use add_bone to draw bone segments, connect_bones to join pieces at their nearest free tail/head endpoints, and update_joint to set angle limits, angle or IK. attach_bone_artwork and detach_bone_artwork bind drawn artwork to a bone. The page camera is independent of its canvas; set_camera adjusts the start frame or whether it appears in Layers.',
+      'Audio: use get_audio to inspect page audio, then add_audio_timeline and add_audio_clip to arrange speech or sound. update_audio_clip changes timing and voice settings; file clips accept an audio data URL or source URL.',
       'Animation: each timeline is a row of clips (the API tool names retain "cutscene"). Shape edits are recorded into the open clip as changes from the previous clip; during it, the object animates from the previous state to the new one.',
       'Each object has one timeline. Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
       'To animate: draw the starting artwork, call add_timeline with shapeId, then add_cutscene and move or restyle that object. There is no implicit Start clip. Use screenshot with `time` to inspect an animation moment.',
@@ -359,6 +361,26 @@ server.registerTool(
 // ---------- documents
 
 server.registerTool(
+  'undo',
+  {
+    title: 'Undo edit',
+    description: 'Undo the most recent editor change.',
+    annotations: edit,
+  },
+  () => run('undo'),
+);
+
+server.registerTool(
+  'redo',
+  {
+    title: 'Redo edit',
+    description: 'Redo the most recently undone editor change.',
+    annotations: edit,
+  },
+  () => run('redo'),
+);
+
+server.registerTool(
   'list_documents',
   {
     title: 'List documents',
@@ -425,7 +447,7 @@ server.registerTool(
   {
     title: 'Get document',
     description:
-      'The current page: canvas, color and gradient palettes, SVG filters, playback range, hidden layers, selection, editing clip and shapes (styles show values changed from defaults). render:false shapes are group children.',
+      'The current page: canvas, independent camera frame, audio timelines and clips, color and gradient palettes, SVG filters, playback range, hidden layers, selection, editing clip and shapes (styles show values changed from defaults). render:false shapes are group children.',
     inputSchema: { includeShapes: z.boolean().optional().describe('default true') },
     annotations: readOnly,
   },
@@ -668,6 +690,276 @@ server.registerTool(
   (args) => run('setLayerVisibility', args),
 );
 
+// ---------- bones, joints and camera
+
+server.registerTool(
+  'add_bone',
+  {
+    title: 'Add bone',
+    description:
+      'Draws a bone between two canvas points. Optionally attach it to a free tail endpoint on an existing rig by passing rootId and anchorBoneId.',
+    inputSchema: {
+      start: point.describe('bone head [x, y]'),
+      end: point.describe('bone tail [x, y]'),
+      rootId: z.string().optional().describe('existing rig group to extend'),
+      anchorBoneId: z.string().optional().describe('free bone tail endpoint on that rig'),
+    },
+    annotations: edit,
+  },
+  (args) => run('addBone', args),
+);
+
+server.registerTool(
+  'connect_bones',
+  {
+    title: 'Connect bones',
+    description:
+      'Connects two groups at their nearest free tail/head endpoints. The second group moves to align; optional pair fields let you choose the exact roots and bone endpoints.',
+    inputSchema: {
+      ids: z.array(z.string()).length(2),
+      options: z
+        .object({
+          pair: z.object({
+            anchorRoot: z.string(),
+            movingRoot: z.string(),
+            anchorBoneId: z.string(),
+            movingBoneId: z.string(),
+          }),
+          alignedRoot: z.string().optional(),
+          alignRotation: z.boolean().optional(),
+        })
+        .optional(),
+    },
+    annotations: edit,
+  },
+  (args) => run('connectBones', args),
+);
+
+server.registerTool(
+  'add_bone_socket',
+  {
+    title: 'Add bone socket',
+    description:
+      'Adds a join socket to artwork at a canvas position. Add a second socket to define its bone segment, then connect it to another rig with connect_bones.',
+    inputSchema: { shapeId: z.string(), point },
+    annotations: edit,
+  },
+  (args) => run('addBoneSocket', args),
+);
+
+server.registerTool(
+  'remove_bone_sockets',
+  {
+    title: 'Remove bone sockets',
+    description: 'Removes an unconnected socket wrapper and preserves its artwork placement.',
+    inputSchema: { id: z.string() },
+    annotations: { ...edit, destructiveHint: true },
+  },
+  (args) => run('removeBoneSockets', args),
+);
+
+server.registerTool(
+  'disconnect_joint',
+  {
+    title: 'Disconnect joint',
+    description: 'Disconnects a joint while preserving the moving artwork’s current pose.',
+    inputSchema: { id: z.string().describe('joint assembly group ID') },
+    annotations: { ...edit, destructiveHint: true },
+  },
+  (args) => run('disconnectJoint', args),
+);
+
+server.registerTool(
+  'attach_bone_artwork',
+  {
+    title: 'Attach artwork to bone',
+    description: 'Attaches a shape or group to a bone while preserving its current placement.',
+    inputSchema: { boneId: z.string(), sourceId: z.string() },
+    annotations: edit,
+  },
+  (args) => run('attachBoneArtwork', args),
+);
+
+server.registerTool(
+  'detach_bone_artwork',
+  {
+    title: 'Detach artwork from bone',
+    description: 'Detaches all artwork from a bone and preserves each item’s current placement.',
+    inputSchema: { boneId: z.string() },
+    annotations: edit,
+  },
+  (args) => run('detachBoneArtwork', args),
+);
+
+server.registerTool(
+  'update_joint',
+  {
+    title: 'Update joint',
+    description:
+      'Changes a joint’s angle or min/max limits in degrees. On a chain’s terminal joint, ik can set enabled, bend direction, influence or target [x, y].',
+    inputSchema: {
+      id: z.string(),
+      angle: z.number().optional(),
+      min: z.number().optional(),
+      max: z.number().optional(),
+      ik: z
+        .object({
+          enabled: z.boolean().optional(),
+          bend: z.number().optional(),
+          influence: z.number().min(0).max(1).optional(),
+          target: point.optional(),
+        })
+        .optional(),
+    },
+    annotations: edit,
+  },
+  (args) => run('updateJoint', args),
+);
+
+server.registerTool(
+  'set_camera',
+  {
+    title: 'Set camera',
+    description:
+      'Sets the camera start frame position and width, independently of the canvas, and optionally shows or hides it in Layers. Camera height follows the output aspect ratio; use update_cutscene to animate camera moves.',
+    inputSchema: {
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().min(40).optional(),
+      visible: z.boolean().optional().describe('show the implicit camera in Layers'),
+    },
+    annotations: edit,
+  },
+  (args) => run('setCamera', args),
+);
+
+// ---------- audio timelines
+
+server.registerTool(
+  'get_audio',
+  {
+    title: 'Get audio timelines',
+    description: 'Lists this page’s audio timelines, clips and duration.',
+    annotations: readOnly,
+  },
+  () => run('getAudio'),
+);
+
+server.registerTool(
+  'add_audio_timeline',
+  {
+    title: 'Add audio timeline',
+    description: 'Adds an audio row to the current page.',
+    inputSchema: { name: z.string().optional() },
+    annotations: edit,
+  },
+  (args) => run('addAudioTimeline', args),
+);
+
+server.registerTool(
+  'update_audio_timeline',
+  {
+    title: 'Update audio timeline',
+    description: 'Renames or mutes an audio row.',
+    inputSchema: {
+      id: z.string(),
+      name: z.string().optional(),
+      muted: z.boolean().optional(),
+    },
+    annotations: edit,
+  },
+  (args) => run('updateAudioTimeline', args),
+);
+
+server.registerTool(
+  'delete_audio_timeline',
+  {
+    title: 'Delete audio timeline',
+    description: 'Deletes an audio row. Set deleteClips to true to remove its clips too.',
+    inputSchema: { id: z.string(), deleteClips: z.boolean().optional() },
+    annotations: { ...edit, destructiveHint: true },
+  },
+  (args) => run('deleteAudioTimeline', args),
+);
+
+server.registerTool(
+  'add_audio_clip',
+  {
+    title: 'Add audio clip',
+    description:
+      'Adds speech narration or a sound file. File audio accepts a source URL or audio data URL; speech is synthesized by the browser during playback.',
+    inputSchema: {
+      timelineId: z.string().optional(),
+      kind: z.enum(['speech', 'file']).optional(),
+      name: z.string().optional(),
+      start: z.number().min(0).optional(),
+      duration: z.number().positive().optional(),
+      source: z.string().optional(),
+      sourceDataUrl: z.string().startsWith('data:audio/').max(70000000).optional(),
+      sourceName: z.string().optional(),
+      text: z.string().optional(),
+      voiceURI: z.string().optional(),
+      lang: z.string().optional(),
+      rate: z.number().positive().optional(),
+      pitch: z.number().positive().optional(),
+      volume: z.number().min(0).max(1).optional(),
+      muted: z.boolean().optional(),
+    },
+    annotations: edit,
+  },
+  (args) => run('addAudioClip', args),
+);
+
+server.registerTool(
+  'update_audio_clip',
+  {
+    title: 'Update audio clip',
+    description: 'Changes timing, narration, voice settings, volume, mute or source on an audio clip.',
+    inputSchema: {
+      id: z.string(),
+      patch: z.object({
+        name: z.string().optional(),
+        start: z.number().min(0).optional(),
+        duration: z.number().positive().optional(),
+        source: z.string().optional(),
+        sourceStart: z.number().min(0).optional(),
+        sourceEnd: z.number().positive().optional(),
+        text: z.string().optional(),
+        voiceURI: z.string().optional(),
+        lang: z.string().optional(),
+        rate: z.number().positive().optional(),
+        pitch: z.number().positive().optional(),
+        volume: z.number().min(0).max(1).optional(),
+        muted: z.boolean().optional(),
+      }),
+    },
+    annotations: edit,
+  },
+  (args) => run('updateAudioClip', args),
+);
+
+server.registerTool(
+  'delete_audio_clip',
+  {
+    title: 'Delete audio clip',
+    description: 'Removes an audio clip from the page.',
+    inputSchema: { id: z.string() },
+    annotations: { ...edit, destructiveHint: true },
+  },
+  (args) => run('deleteAudioClip', args),
+);
+
+server.registerTool(
+  'set_audio_duration',
+  {
+    title: 'Set audio duration',
+    description: 'Sets the page’s explicit total audio duration; omit duration to clear the override.',
+    inputSchema: { duration: z.number().min(0).optional() },
+    annotations: edit,
+  },
+  (args) => run('setAudioDuration', args),
+);
+
 server.registerTool(
   'add_gradient',
   {
@@ -747,12 +1039,25 @@ server.registerTool(
   {
     title: 'Set canvas',
     description:
-      'Sets the page background and shape. A canvas with an aspect ratio has a fixed resolution (1:1 = 1080×1080, 3:4 = 1080×1440, 4:3 = 1440×1080, 9:16 = 1080×1920, 16:9 = 1920×1080) that coordinates are in; "fill" makes it fill the editor, sized by width/height (percent of the drawing area). get_document reports the pixel size.',
+      'Sets the page background and output size. A canvas with an aspect ratio has a fixed resolution (1:1 = 1080×1080, 3:4 = 1080×1440, 4:3 = 1440×1080, 9:16 = 1080×1920, 16:9 = 1920×1080); "fill" makes it fill the editor. canvasArea adjusts the drawable area independently of the camera. get_document reports the pixel size.',
     inputSchema: {
       aspectRatio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', 'fill']).optional(),
       backgroundColor: z.string().optional(),
       width: z.number().positive().optional().describe('percent'),
       height: z.number().positive().optional().describe('percent'),
+      canvasArea: z
+        .discriminatedUnion('mode', [
+          z.object({ mode: z.literal('auto') }),
+          z.object({
+            mode: z.literal('custom'),
+            x: z.number(),
+            y: z.number(),
+            width: z.number().int().positive(),
+            height: z.number().int().positive(),
+          }),
+        ])
+        .optional()
+        .describe('drawable canvas bounds in pixels, separate from the camera frame'),
     },
     annotations: edit,
   },
