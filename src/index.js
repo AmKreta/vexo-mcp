@@ -22,6 +22,7 @@ const server = new McpServer(
       'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search clip art, illustrations, vectors and photos; manage palettes; animate with timelines and clips; preview and export SVG, PNG, JSON or MP4.',
       'The editor must be open in a browser (npm run dev:frontend, then http://localhost:3000); call editor_status if a tool says no editor is connected.',
       'Use batch_edit to build a complete object per call, inspect after each meaningful pass, then refine in batches. Batch references ($name) allow grouping and editing new shapes without waiting for IDs.',
+      'Patterns: create_pattern makes a repeating tile; open it with set_editor(view: "pattern", patternId), draw the tile with the normal tools, then set any shape\'s style.fill or style.stroke to its `fill` reference (url(#id)) from list_patterns. update_pattern changes size, scale, rotation or background.',
       'Use list_sprites, create_sprite_sheet, add_sprite_page and set_editor for project-wide vector sprites. Draw each animation using the normal tools; place_sprite adds an instance plus a timed clip. Instances expose controls; sprites may nest but cannot include themselves.',
       'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
       'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
@@ -290,6 +291,12 @@ const style = z
     strokeWidth: z.number().optional(),
     strokeOpacity: z.number().min(0).max(1).optional(),
     strokeDasharray: z.array(z.number()).optional(),
+    strokeTaper: z
+      .object({ start: z.number().min(0).max(0.5), end: z.number().min(0).max(0.5) })
+      .optional()
+      .describe(
+        'line/polyline/polygon/path: share of the length (0–0.5) over which the stroke thins to a point at its start and end, for hand-inked lines',
+      ),
     strokeLinecap: z.enum(['butt', 'round', 'square']).optional(),
     strokeLinejoin: z.enum(['bevel', 'miter', 'round']).optional(),
     opacity: z.number().min(0).max(1).optional().describe('whole-shape opacity'),
@@ -1512,6 +1519,7 @@ server.registerTool(
 );
 
 const spriteSize = z.number().positive().max(8192);
+const tileSize = z.number().min(4).max(2000);
 const controlValue = z.union([z.string(), z.number().finite(), z.boolean()]);
 const control = z.object({
   id: z.string().optional(),
@@ -1604,14 +1612,64 @@ const features = [
     { sheetId: z.string(), pageId: z.string(), controls: z.array(control).max(100) },
   ],
   [
+    'list_patterns',
+    'List patterns',
+    'Project-wide repeating tiles. Each has a `fill` reference (url(#id)) to use as any shape\'s style.fill or style.stroke, in every scene and sprite.',
+    'listPatterns',
+    {
+      includeDocuments: z
+        .boolean()
+        .optional()
+        .describe('Return each tile\'s editable document only when needed; false by default.'),
+    },
+    true,
+  ],
+  [
+    'create_pattern',
+    'Create pattern',
+    'Create an empty repeating tile (polka dots, stripes, checks, scales, prints). Then open it with set_editor(view: "pattern", patternId) and draw the tile between (0, 0) and (width, height) with the normal shape tools; artwork crossing an edge should continue on the opposite edge. Returns its id and `fill` reference.',
+    'createPattern',
+    {
+      name: z.string().min(1),
+      width: tileSize.optional().describe('tile width in px, default 40'),
+      height: tileSize.optional().describe('tile height in px, default 40'),
+      scale: z.number().positive().max(20).optional().describe('how big the tile is drawn where used; 1 = its own size'),
+      rotate: z.number().optional().describe('turns the whole tiling, degrees (45 makes diagonal stripes)'),
+      background: z.string().optional().describe('tile background colour; transparent by default'),
+    },
+  ],
+  [
+    'update_pattern',
+    'Update pattern',
+    'Rename a pattern or change its tile size, scale, rotation or background. Every shape using it updates.',
+    'updatePattern',
+    {
+      patternId: z.string(),
+      name: z.string().min(1).optional(),
+      width: tileSize.optional(),
+      height: tileSize.optional(),
+      scale: z.number().positive().max(20).optional(),
+      rotate: z.number().optional(),
+      background: z.string().optional(),
+    },
+  ],
+  [
+    'delete_pattern',
+    'Delete pattern',
+    'Delete a pattern. Shapes still using its fill reference lose that fill, so change them first.',
+    'deletePattern',
+    { patternId: z.string() },
+  ],
+  [
     'set_editor',
     'Switch editor',
-    'Open the scene editor or a specific sprite animation. Subsequent drawing, batch and timeline tools act on this visible editor.',
+    'Open the scene editor, a specific sprite animation, or a pattern\'s tile. Subsequent drawing, batch and timeline tools act on this visible editor.',
     'setEditor',
     {
-      view: z.enum(['scene', 'spritesheet']),
+      view: z.enum(['scene', 'spritesheet', 'pattern']),
       sheetId: z.string().optional(),
       pageId: z.string().optional(),
+      patternId: z.string().optional().describe('pattern: the tile to draw'),
     },
   ],
   [

@@ -52,7 +52,7 @@ Each `server.registerTool(...)` call automatically exposes its name, title, desc
 | Reusable styling    | `list_colors`, `add_color`, `update_color`, `remove_color`, `add_gradient`, `update_gradient`, `remove_gradient`, `add_svg_filter`, `update_svg_filter`, `remove_svg_filter` — manage shared palette colors and gradients, plus shape-attached outline and inset-shadow filters.                                                                                                                     |
 | Canvas and pages    | `set_canvas`, `add_page`, `remove_page`, `set_active_page` — set the background and dimensions, and organize scenes as pages.                                                                                                                                                                                                                                                                        |
 | Timelines and clips | `get_timelines`, `add_timeline`, `rename_timeline`, `delete_timeline`, `update_timeline`, `add_cutscene`, `open_cutscene`, `update_cutscene`, `delete_cutscene`, `set_transition` — create or open one timeline per shapeId (including groups and sprites), or add an empty row and choose its shape later. The shape binding is permanent. Then edit clips, timing, easing, repeats, camera views and enter/exit effects. Artwork remains on the page when its timeline is removed. |
-| Project assets       | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `set_sprite_controls`, `set_editor`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`, `list_project_files`, `create_project_folder`, `add_project_file`, `place_project_file` — create reusable vector sprites and manage project files and folders. |
+| Project assets       | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `set_sprite_controls`, `set_editor`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`, `list_project_files`, `create_project_folder`, `add_project_file`, `place_project_file`, `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern` — create reusable vector sprites and repeating patterns, and manage project files and folders. |
 | Playback and guides | `set_loop`, `set_play_range`, `play_animation`, `stop_animation`, `set_helpers` — control preview and show or hide editor guides.                                                                                                                                                                                                                                                                    |
 | Output              | `export_svg`, `export_animated_svg`, `export_mp4`, `screenshot` — export static or animated work, or preview a PNG (pass `time` to inspect an animation moment).                                                                                                                                                                                                                                     |
 
@@ -101,6 +101,7 @@ Project JSON export includes the whole project, even while a sprite page is open
 | Sprites                | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `update_sprite_page`, `set_editor`. |
 | Controls and placement | `set_sprite_controls`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`.                                 |
 | Filesystem             | `create_project_folder`, `list_project_files`, `add_project_file`, `place_project_file`.                             |
+| Patterns               | `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern`, `set_editor` with `view: "pattern"`.          |
 | Stacking               | `bring_to_front` — permanent, or temporary until another shape is selected.                                          |
 
 ### Build, inspect, refine
@@ -148,6 +149,19 @@ Batch edits use the same command validation and timeline ownership rules as sing
 stop on the first failure and report completed operations, real IDs, the failing index and remaining
 count. Completed work stays applied; retry only unfinished work. Edits stop if the document,
 page or editing clip changes. The editor paints between small chunks to remain responsive.
+
+### Make a repeating pattern
+
+1. `create_pattern` with a name and tile width/height (and optional scale, rotation, background).
+2. `set_editor` with `view: "pattern"` and the pattern ID, then draw the tile with `batch_edit`
+   between (0, 0) and the tile size. Artwork crossing an edge should continue on the opposite edge.
+3. `set_editor` with `view: "scene"`, then set a shape's `style.fill` or `style.stroke` to the
+   pattern's `fill` reference (`url(#id)`, from `list_patterns`).
+4. `update_pattern` changes the size, scale (how big it's drawn where used), rotation or
+   background; every shape using it updates.
+
+Strokes on lines, polylines, polygons and paths can taper to a point: set
+`style.strokeTaper: { start, end }` (each 0–0.5 of the length).
 
 ### Draw a reusable sprite
 
