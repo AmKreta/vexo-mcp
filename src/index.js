@@ -26,7 +26,9 @@ const server = new McpServer(
       'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
       'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
       'Use add_shape and update_shape for geometry, text, paint, transforms, CSS filters, modifiers and particles. Use add_svg_filter for outline or inset-shadow effects attached to a shape; palette colors and gradients can be reused as url(#id) fills.',
-      'Rigging: use add_bone to draw bone segments, connect_bones to join pieces at their nearest free tail/head endpoints, and update_joint to set angle limits, angle or IK. attach_bone_artwork and detach_bone_artwork bind drawn artwork to a bone. The page camera is independent of its canvas; set_camera adjusts the start frame or whether it appears in Layers.',
+      'Rigging: use add_bone to draw bone segments, connect_bones to join pieces at their nearest free tail/head endpoints, and update_joint to set angle limits, angle or IK. attach_bone_artwork and detach_bone_artwork bind drawn artwork to a bone. The page camera is independent of its canvas; set_camera adjusts the start frame, whether it appears in Layers, and a follow target.',
+      'Camera group: move_into_group with groupId "camera" attaches artwork to the camera so it keeps its place on screen while the camera pans and zooms (HUDs, titles, subtitles). remove_from_camera takes it back out. get_document reports camera.follow and camera.group.',
+      'Mirror: add_shape type "mirror" makes a frame divided into sections (radial wedges or side-by-side columns, default 4). Draw artwork inside its first section, then move_into_group it into the mirror; the other sections reflect it live. Change sections, mode or size with update_shape properties.mirror. Guides show only while editing.',
       'Audio: use get_audio to inspect page audio, then add_audio_timeline and add_audio_clip to arrange speech or sound. update_audio_clip changes timing and voice settings; file clips accept an audio data URL or source URL.',
       'Animation: each timeline is a row of clips (the API tool names retain "cutscene"). Shape edits are recorded into the open clip as changes from the previous clip; during it, the object animates from the previous state to the new one.',
       'Each object has one timeline. Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
@@ -66,7 +68,21 @@ const shapeType = z.enum([
   'path',
   'text',
   'image',
+  'mirror',
 ]);
+const mirror = z
+  .object({
+    mode: z
+      .enum(['radial', 'side-by-side'])
+      .optional()
+      .describe('radial: wedges around the centre; side-by-side: columns'),
+    segments: z.number().int().min(2).max(24).optional().describe('sections, 2–24 (default 4)'),
+    width: z.number().positive().optional(),
+    height: z.number().positive().optional(),
+  })
+  .describe(
+    'mirror only: the frame size and how many sections reflect the artwork drawn in the first one',
+  );
 const transition = z.enum([
   'none',
   'fade',
@@ -259,6 +275,7 @@ const properties = z
       .string()
       .optional()
       .describe('image source: a data: URL (http URLs show in the editor but not in screenshots)'),
+    mirror: mirror.optional(),
   })
   .describe('Geometry and content; which keys apply depends on the shape type');
 
@@ -595,6 +612,7 @@ server.registerTool(
       'Draws a shape on the current page and selects it. New shapes default to a 1px black stroke and a transparent fill.',
       'circle/ellipse: x, y = center (defaults radius 40 / radiusX 80, radiusY 40). rectangle/image: x, y = top-left (defaults 60×60 / 200×200).',
       'text: x, y = baseline start. line/polyline/polygon: give `points`; path: give `properties.d` (SVG path data); x and y are ignored.',
+      'mirror: x, y = top-left of its frame (default 320×320, 4 radial sections); then draw artwork inside its first section (top-right wedge for radial, left column for side-by-side) and move_into_group it into the mirror.',
     ].join(' '),
     inputSchema: {
       type: shapeType,
@@ -676,6 +694,33 @@ server.registerTool(
     annotations: edit,
   },
   (args) => run('groupShapes', args),
+);
+
+server.registerTool(
+  'move_into_group',
+  {
+    title: 'Move into group',
+    description:
+      'Moves shapes into an existing group or mirror, keeping where they appear on the canvas; they leave their previous group. groupId "camera" puts them in the camera group so they move and zoom with the camera (HUDs, titles, subtitles, score); the first such move creates it. Bones, joints and arrays cannot take children, and a group cannot go inside its own descendants.',
+    inputSchema: {
+      ids: z.array(z.string()).min(1),
+      groupId: z.string().describe('a group or mirror id, or "camera"'),
+    },
+    annotations: edit,
+  },
+  (args) => run('moveIntoGroup', args),
+);
+
+server.registerTool(
+  'remove_from_camera',
+  {
+    title: 'Remove from camera',
+    description:
+      'Takes shapes out of the camera group back to the top level, where they sit at the camera\'s start frame. An empty camera group is removed.',
+    inputSchema: { ids: z.array(z.string()).min(1) },
+    annotations: edit,
+  },
+  (args) => run('removeFromCamera', args),
 );
 
 server.registerTool(
@@ -821,12 +866,17 @@ server.registerTool(
   {
     title: 'Set camera',
     description:
-      'Sets the camera start frame position and width, independently of the canvas, and optionally shows or hides it in Layers. Camera height follows the output aspect ratio; use update_cutscene to animate camera moves.',
+      'Sets the camera start frame position and width, independently of the canvas, optionally shows or hides it in Layers, and sets a follow target. Camera height follows the output aspect ratio; use update_cutscene to animate camera moves. follow moves the camera along with a shape or group by however far it travels from its starting position (camera clips still add their own pan and zoom); null stops following. Returns the frame, follow target and camera group.',
     inputSchema: {
       x: z.number().optional(),
       y: z.number().optional(),
       width: z.number().min(40).optional(),
       visible: z.boolean().optional().describe('show the implicit camera in Layers'),
+      follow: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('shape or group id for the camera to follow; null stops following'),
     },
     annotations: edit,
   },
