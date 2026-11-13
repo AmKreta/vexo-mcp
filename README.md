@@ -35,6 +35,30 @@ Then start the editor from the repository root with `npm run dev:frontend` and o
 
 With several editor tabs open, the agent works in the one you focused last.
 
+**With Docker:** the repository's `docker-compose.yml` has an `mcp` service. MCP talks over stdio, so the client starts the container itself; `docker compose up` leaves it out. Build it once with `docker compose build mcp`, then point the client at:
+
+```json
+{
+  "mcpServers": {
+    "svgtool": {
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f",
+        "/absolute/path/to/svgEditor/docker-compose.yml",
+        "run",
+        "--rm",
+        "-T",
+        "--service-ports",
+        "mcp"
+      ]
+    }
+  }
+}
+```
+
+Keep `-T`: a terminal would corrupt the MCP messages. `--service-ports` publishes the editor bridge on `127.0.0.1:7341` (set `MCP_BRIDGE_PORT` to change it, and `VITE_MCP_BRIDGE_URL` in the editor to match). The server's source is mounted into the container, so edits apply the next time the client starts it; rebuild after changing dependencies. Only one copy can hold the bridge port, so stop a locally started server first.
+
 ## Tools
 
 Each `server.registerTool(...)` call automatically exposes its name, title, description, and input schema through MCP's standard tool listing. No separate listing tool is needed.
@@ -81,11 +105,12 @@ Changes stay in the tab until `save_document` is called, as in the editor itself
 | Where  | Variable                     | Default               |                                                                             |
 | ------ | ---------------------------- | --------------------- | --------------------------------------------------------------------------- |
 | server | `SVG_EDITOR_BRIDGE_PORT`     | `7341`                | port the editor connects to                                                 |
+| server | `SVG_EDITOR_BRIDGE_HOST`     | `127.0.0.1`           | address the websocket listens on; `0.0.0.0` inside Docker                   |
 | server | `SVG_EDITOR_ALLOWED_ORIGINS` | none                  | comma-separated extra sites allowed to connect; localhost is always allowed |
 | editor | `VITE_MCP_BRIDGE_URL`        | `ws://127.0.0.1:7341` | must match the server's port                                                |
 | editor | `VITE_MCP_BRIDGE`            | on in development     | `true` to connect from a production build, `false` to never connect         |
 
-The websocket only listens on 127.0.0.1, and it refuses browser pages from sites other than localhost unless you list them.
+The websocket listens on 127.0.0.1 (in Docker it listens inside the container, and the port is published on 127.0.0.1 only), and it refuses browser pages from sites other than localhost unless you list them.
 
 ## Tests
 

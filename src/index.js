@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { EditorBridge } from './bridge.js';
 
 const PORT = Number(process.env.SVG_EDITOR_BRIDGE_PORT || 7341);
+// 0.0.0.0 inside a container, so the published port reaches it; keep 127.0.0.1 elsewhere
+const HOST = process.env.SVG_EDITOR_BRIDGE_HOST || '127.0.0.1';
 const ALLOWED_ORIGINS = (process.env.SVG_EDITOR_ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
@@ -13,7 +15,7 @@ const ALLOWED_ORIGINS = (process.env.SVG_EDITOR_ALLOWED_ORIGINS || '')
 // stdout carries the MCP protocol, so logs go to stderr
 const log = (msg) => process.stderr.write(`[svgtool-mcp] ${msg}\n`);
 
-const bridge = new EditorBridge({ port: PORT, allowedOrigins: ALLOWED_ORIGINS, log });
+const bridge = new EditorBridge({ port: PORT, host: HOST, allowedOrigins: ALLOWED_ORIGINS, log });
 
 const server = new McpServer(
   { name: 'svgtool', version: '0.1.0' },
