@@ -27,17 +27,21 @@ const server = new McpServer(
       'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
       'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
       'Use add_shape and update_shape for geometry, text, paint, transforms, CSS filters, modifiers and particles. Use add_svg_filter for outline or inset-shadow effects attached to a shape; palette colors and gradients can be reused as url(#id) fills.',
+      'Illustration polish: shade with a shape set to style.blendMode "multiply" (e.g. a soft purple shape over the dark side) and light with "screen", inside the character\'s group (groups isolate blending, so it never darkens the background); keep shading inside the outline or clip it with the group\'s containerId + overflow hidden. add_svg_filter type "effect" adds creative filters: grain or paper for texture, boil for a hand-drawn line wobble, ripple, glitch, crt, hologram, smoke, dissolve, goo, pixelate, neon for glow, duotone/posterize for print looks, emboss, rgbSplit, inkEdges. Boil, glitch, crt, hologram, smoke and ripple move on their own; any effect control can be animated by changing it with update_svg_filter inside a clip. For anything else, write SVG filter primitives once with create_filter_preset and reuse it.',
       'Rigging: use add_bone to draw bone segments, connect_bones to join pieces at their nearest free tail/head endpoints, and update_joint to set angle limits, angle or IK. attach_bone_artwork and detach_bone_artwork bind drawn artwork to a bone. The page camera is independent of its canvas; set_camera adjusts the start frame, whether it appears in Layers, and a follow target.',
       'Camera group: move_into_group with groupId "camera" attaches artwork to the camera so it keeps its place on screen while the camera pans and zooms (HUDs, titles, subtitles). remove_from_camera takes it back out. get_document reports camera.follow and camera.group.',
       'Mirror: add_shape type "mirror" makes a frame divided into sections (radial wedges or side-by-side columns, default 4). Draw artwork inside its first section, then move_into_group it into the mirror; the other sections reflect it live. Change sections, mode or size with update_shape properties.mirror. Guides show only while editing.',
+      'Motion path: add_shape type "motionPath" places an empty drop box. move_into_group an outline into it first (a line, pen path, rectangle…; it becomes the path), then the shape that should travel. Or convert_to_motion_path an existing outline. Inside a clip, update_shape properties.motionPath.progress from 0 to 100 moves the shape from start to end; rotate turns it to face its direction; showPath false hides the path. release_from_modifier takes the path or shape back out.',
+      'Draw: add_shape type "draw" places an empty drop box; move_into_group shapes with a stroke into it. Set properties.draw.end 0 so they start hidden, then inside a clip set end 100 to draw them on (start 0 → 100 with end 100 erases them). order "sequence" draws one after another; direction and startPoint choose where and which way the pen goes; fill "reveal" fades fills in as each outline finishes. Only strokes are drawn.',
       'Audio: use get_audio to inspect page audio, then add_audio_timeline and add_audio_clip to arrange speech or sound. update_audio_clip changes timing and voice settings; file clips accept an audio data URL or source URL.',
       'Animation: each timeline is a row of clips (the API tool names retain "cutscene"). Shape edits are recorded into the open clip as changes from the previous clip; during it, the object animates from the previous state to the new one.',
-      'Each object has one timeline. Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
+      'Each timeline animates one object; an object can have several (separate animations that play together, layered property by property; add_timeline with newTimeline true adds one). Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
       'To animate: draw the starting artwork, call add_timeline with shapeId, then add_cutscene and move or restyle that object. There is no implicit Start clip. Use screenshot with `time` to inspect an animation moment.',
       'Best practices: inspect get_document and get_timelines first; use the canvas pixel size for coordinates. Group related shapes before adding object timelines, name groups clearly, nest groups for larger objects, and animate the group. A group and its children may each have their own animation timelines.',
       'get_document returns hiddenShapeIds. Use set_layer_visibility to show or hide a page layer without changing opacity or creating a clip. Hiding a group hides its descendants.',
       'Reuse styling: add a palette color or gradient, then reuse its `fill` reference (`url(#id)`) across the document. list_colors and get_document show existing entries; update a shared color or gradient instead of changing every shape that uses it.',
       'Repeated geometry: use one source shape with `properties.modifiers` and an array modifier (linear rows, radial rings, or random scatters) instead of drawing copies. `count` is the number of extra copies. Use `delay` for staggered motion.',
+      'Custom filters and particles are React-style TSX components (what the Filter and Particle Editors show): create_filter_preset with `source`, and properties.particles.type "custom" with a `component` (see the schemas for the props and helpers). They run in a sandbox. Custom particles can also use a `script` of expressions (x, y, and optionally opacity, size, rotate, color, params) for motion the presets lack: orbits, spirals, vortices, swarms, particles tracing a shape. list_particle_presets shows scripted examples; create_particle_preset saves one for reuse.',
       'Effects: use `properties.particles` for bursts, falling confetti or snow, rising embers, and drifting sparkles instead of drawing many particles by hand. Set `hideSource` when the emitter shape should not show.',
       'Animation cycles: animate one complete motion in a cutscene, then set `repeat` and `loop` on it. Use `alternate` to reverse each repeat, `continue` to accumulate movement or rotation, and `repeatDelay` for a pause. Repeats end at the next cutscene or playback-range end.',
       'Use a new page for a distinct scene or topic, and cutscenes for changes within a scene. Pages play one after another, like slides. Preview with play_animation or screenshot, then save_document to persist edits.',
@@ -59,6 +63,9 @@ async function run(method, params = {}) {
 }
 
 const point = z.tuple([z.number(), z.number()]);
+const blendMode = z
+  .enum(['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light', 'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'])
+  .describe('how the shape mixes with what is beneath it: multiply for shading, screen for light and glow, overlay/soft-light for texture, color/hue to tint');
 const shapeType = z.enum([
   'circle',
   'rectangle',
@@ -70,7 +77,83 @@ const shapeType = z.enum([
   'text',
   'image',
   'mirror',
+  'motionPath',
+  'draw',
 ]);
+const motionPath = z
+  .object({
+    showPath: z
+      .boolean()
+      .optional()
+      .describe('draw the path shape with its own style (default true); false hides it'),
+    start: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe('where along the path travel begins, % of its length (default 0)'),
+    end: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe('where along the path travel ends, % of its length (default 100)'),
+    progress: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe(
+        'how far the shape has travelled from start to end, % (default 0); change it inside a clip, e.g. 0 → 100, to move the shape along the path',
+      ),
+    rotate: z
+      .boolean()
+      .optional()
+      .describe('turn the shape to face the direction it moves (its right side leads)'),
+  })
+  .describe(
+    'motionPath only: how its shape travels along its path; add the path and the shape with move_into_group',
+  );
+const draw = z
+  .object({
+    start: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe('where the visible stroke begins, % of each outline (default 0)'),
+    end: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe(
+        'where the visible stroke ends, % (default 100). Set 0 so shapes start hidden, then 100 inside a clip to draw them on',
+      ),
+    startPoint: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe(
+        "where on each outline the pen starts, % of its length from the outline's own start (a rectangle's top-left corner, a circle's right-hand point); closed outlines wrap round",
+      ),
+    order: z
+      .enum(['together', 'sequence'])
+      .optional()
+      .describe('together: every shape at once; sequence: one after another in layer order'),
+    direction: z
+      .enum(['forward', 'backward', 'both'])
+      .optional()
+      .describe('forward: one side at a time (clockwise on rectangles/circles); backward: the other way; both: out both ways from startPoint'),
+    fill: z
+      .enum(['show', 'reveal', 'hide'])
+      .optional()
+      .describe('fill while drawing: show always, reveal = fade in as each outline finishes, hide = outline only'),
+  })
+  .describe(
+    'draw only: reveals the strokes of its shapes like a pen drawing them; only strokes are drawn, so give shapes a stroke',
+  );
 const mirror = z
   .object({
     mode: z
@@ -149,9 +232,9 @@ const arrayModifier = z.object({
 const particles = z.object({
   enabled: z.boolean().default(true),
   type: z
-    .enum(['emit', 'fall', 'up', 'random'])
+    .enum(['emit', 'fall', 'up', 'random', 'custom'])
     .describe(
-      'emit: burst out in every direction (fireworks); fall: drift down (snow, confetti); up: rise (embers, bubbles); random: wander (sparkles)',
+      'emit: burst out in every direction (fireworks); fall: drift down (snow, confetti); up: rise (embers, bubbles); random: wander (sparkles); custom: motion written as expressions in `script` (orbits, spirals, vortices, shapes, anything else)',
     ),
   count: z.number().int().min(1).max(600).describe('particles per wave'),
   ttl: z.number().positive().describe('seconds each particle lives'),
@@ -190,10 +273,39 @@ const particles = z.object({
     .boolean()
     .optional()
     .describe('show only the particles, not the shape giving them off (e.g. a small emitter dot)'),
+
+  component: z
+    .string()
+    .optional()
+    .describe(
+      'type custom, preferred over script: a React-style TSX component drawing ONE particle around (0, 0) = the emitting shape, as in the Particle Editor. `export const emitter = { count: 60, ttl: 3, spread: 3, loop: true, size: 3, colorStart: "#7cf6ff", colorEnd: "#a26bff" };` `export const controls = { radius: { type: "number", label: "Radius", default: 140 } } as const;` `export default function Spark({ u, k, r1, size, color, radius }) { return <circle cx={cos(k*tau)*radius*u} cy={sin(k*tau)*radius*u} r={size} fill={color} opacity={1-u}/>; }`. Props: t, u (life 0→1), T, i, n, k, w, r1…r6, ttl, speed, gravity, spanWidth, spanHeight, size, color (start→end over life), colorStart, colorEnd, plus each control. Return circle, ellipse, rect, line, polyline, polygon, path or g. Same globals as filters plus mixColor(a, b, k).',
+    ),
+  values: z
+    .record(z.string(), z.union([z.number(), z.string()]))
+    .optional()
+    .describe("the component's control values"),
+  script: z
+    .object({
+      x: z.string().describe('px from the emitting shape, across, e.g. "cos(r1*tau + u*spin) * radius * u"'),
+      y: z.string().describe('px from the emitting shape, down'),
+      opacity: z.string().optional().describe('0–1; omit to use the opacity curve'),
+      size: z.string().optional().describe('times `size`; omit for 1'),
+      rotate: z.string().optional().describe('degrees'),
+      color: z.string().optional().describe('0 = colorStart, 1 = colorEnd; omit to blend over life'),
+      params: z.record(z.string(), z.number()).optional().describe('numbers the expressions use by name'),
+    })
+    .optional()
+    .describe(
+      'type custom: each particle\'s motion and look as expressions, evaluated every frame. Variables: t (age s), u (life 0→1), T (s since the shape appeared), i (index in wave), n (count), k (i/n), w (wave), r1…r6 (random 0–1 fixed per particle), ttl, speed, gravity, spanWidth, spanHeight, size, plus params. Functions: sin cos tan atan2 abs floor ceil round sign sqrt exp log min max pow frac mod clamp mix smoothstep random noise; constants pi tau e. Examples: orbit x "cos(k*tau + T) * 110", y "sin(k*tau + T) * 40"; heart x "6*16*pow(sin(k*tau),3)", y "-6*(13*cos(k*tau)-5*cos(2*k*tau)-2*cos(3*k*tau)-cos(4*k*tau))".',
+    ),
 });
 
 const properties = z
   .object({
+    blendIsolation: z
+      .boolean()
+      .optional()
+      .describe('group: keep blend modes inside the group from mixing with what is behind it (default true)'),
     overlapOperation: z
       .enum(['add', 'subtract', 'union', 'intersection'])
       .optional()
@@ -277,6 +389,8 @@ const properties = z
       .optional()
       .describe('image source: a data: URL (http URLs show in the editor but not in screenshots)'),
     mirror: mirror.optional(),
+    motionPath: motionPath.optional(),
+    draw: draw.optional(),
   })
   .describe('Geometry and content; which keys apply depends on the shape type');
 
@@ -300,6 +414,7 @@ const style = z
     strokeLinecap: z.enum(['butt', 'round', 'square']).optional(),
     strokeLinejoin: z.enum(['bevel', 'miter', 'round']).optional(),
     opacity: z.number().min(0).max(1).optional().describe('whole-shape opacity'),
+    blendMode: blendMode.optional(),
     translate: point
       .optional()
       .describe(
@@ -560,15 +675,20 @@ server.registerTool(
   {
     title: 'Add SVG filter',
     description:
-      'Attaches an outline, inset shadow or drop shadow SVG effect to a shape. CSS filters are available through update_shape.',
+      'Attaches an SVG filter to a shape: an outline, inset shadow or drop shadow; or type "effect" with a `preset` (built-in creative effects: grain, paper, ripple, boil, glitch, crt, hologram, smoke, dissolve, goo, pixelate, neon, duotone, posterize, emboss, rgbSplit, inkEdges; or a project preset from create_filter_preset) and its control `values`. Several filters stack in order. CSS filters are available through update_shape.',
     inputSchema: {
       shapeId: z.string(),
-      type: z.enum(['outline', 'insetShadow', 'dropShadow']),
+      type: z.enum(['outline', 'insetShadow', 'dropShadow', 'effect']),
       color: z.string().optional(),
       blur: z.number().min(0).optional(),
       radius: z.number().min(0).optional().describe('outline thickness'),
       xOffset: z.number().optional().describe('shadow horizontal offset'),
       yOffset: z.number().optional().describe('shadow vertical offset'),
+      preset: z.string().optional().describe('effect: preset id from list_filter_presets'),
+      values: z
+        .record(z.string(), z.union([z.number(), z.string()]))
+        .optional()
+        .describe('effect: control values by param key; missing ones use the preset defaults'),
     },
     annotations: edit,
   },
@@ -579,20 +699,161 @@ server.registerTool(
   'update_svg_filter',
   {
     title: 'Update SVG filter',
-    description: 'Changes an outline, inset shadow or drop shadow already attached to a shape.',
+    description:
+      'Changes a filter already attached to a shape: outline/shadow settings, or an effect\'s control `values`. Effect values live on the shape, so changing them inside an open clip animates them (e.g. dissolve amount 0 → 1).',
     inputSchema: {
       shapeId: z.string(),
       id: z.string(),
-      type: z.enum(['outline', 'insetShadow', 'dropShadow']),
+      type: z.enum(['outline', 'insetShadow', 'dropShadow', 'effect']),
       color: z.string().optional(),
       blur: z.number().min(0).optional(),
       radius: z.number().min(0).optional(),
       xOffset: z.number().optional(),
       yOffset: z.number().optional(),
+      values: z
+        .record(z.string(), z.union([z.number(), z.string()]))
+        .optional()
+        .describe('effect: control values to change, by param key'),
     },
     annotations: edit,
   },
   (args) => run('updateSvgFilter', args),
+);
+
+const effectParam = z.object({
+  key: z.string().regex(/^\w+$/).describe('used as {{key}} in the markup'),
+  label: z.string(),
+  kind: z.enum(['number', 'color']),
+  default: z.union([z.number(), z.string()]),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().positive().optional(),
+});
+
+server.registerTool(
+  'list_particle_presets',
+  {
+    title: 'List particle presets',
+    description: 'Built-in particle presets (including scripted ones: Spiral galaxy, Orbit, Fireflies, Vortex, Heart, Fountain arc) and the project\'s own, each with its full `particles` settings. Copy one into update_shape properties.particles, adjusting as needed.',
+    inputSchema: {},
+    annotations: readOnly,
+  },
+  (args) => run('listParticlePresets', args),
+);
+
+server.registerTool(
+  'create_particle_preset',
+  {
+    title: 'Create particle preset',
+    description: 'Saves a particle setup in the project so it can be reused and appears in the Particles panel. For new motion use type "custom" with a `script` (see the particles property). Returns the preset; apply it with update_shape properties.particles.',
+    inputSchema: {
+      name: z.string().min(1),
+      hint: z.string().optional(),
+      folder: z.string().optional().describe('Filesystem folder path'),
+      particles,
+    },
+    annotations: edit,
+  },
+  (args) => run('createParticlePreset', args),
+);
+
+server.registerTool(
+  'update_particle_preset',
+  {
+    title: 'Update particle preset',
+    description: 'Changes a project particle preset: its name, hint, Filesystem folder, or its particles (pass only what changes; type custom with a `component` or `script` is checked). Shapes made from the preset update too.',
+    inputSchema: {
+      presetId: z.string(),
+      name: z.string().min(1).optional(),
+      hint: z.string().optional(),
+      folder: z.string().optional().describe('Filesystem folder path; "" = top level'),
+      particles: particles.partial().optional(),
+    },
+    annotations: edit,
+  },
+  (args) => run('updateParticlePreset', args),
+);
+
+server.registerTool(
+  'delete_particle_preset',
+  {
+    title: 'Delete particle preset',
+    description: 'Deletes a project particle preset. Shapes keep the particles they already have.',
+    inputSchema: { presetId: z.string() },
+    annotations: { ...edit, destructiveHint: true },
+  },
+  (args) => run('deleteParticlePreset', args),
+);
+
+server.registerTool(
+  'list_filter_presets',
+  {
+    title: 'List filter presets',
+    description: 'Built-in creative filter presets and the project\'s own, with their params (and markup for project presets). Use a preset id with add_svg_filter type "effect".',
+    inputSchema: {},
+    annotations: readOnly,
+  },
+  (args) => run('listFilterPresets', args),
+);
+
+server.registerTool(
+  'create_filter_preset',
+  {
+    title: 'Create filter preset',
+    description: 'Saves a reusable creative SVG filter in the project, for effects the built-in presets don\'t cover. `markup` is the inside of a <filter>: SVG filter primitives only (feTurbulence, feDisplacementMap, feGaussianBlur, feColorMatrix, feComponentTransfer with feFuncR/G/B/A, feComposite, feBlend, feMorphology, feConvolveMatrix, feDiffuseLighting/feSpecularLighting with a light, feFlood, feOffset, feMerge, feDropShadow, feTile); feImage, scripts and links are stripped. Use {{key}} for each param; a color param also gives {{key.r}}, {{key.g}}, {{key.b}} (0–1), a number param {{key.inv}} (1 − value) and {{key.steps}} (that many values from 0 to 1). {{= expression}} computes from number params and t (seconds), with + - * / %, pi and sin, cos, abs, floor, ceil, round, sqrt, min, max, pow, frac, mod, clamp, smoothstep, random(n); e.g. seed="{{= floor(t*rate)}}" makes noise change rate times a second, so the effect moves during playback. Apply it with add_svg_filter type "effect". Returns the cleaned markup as `preview`.',
+    inputSchema: {
+      name: z.string().min(1),
+      description: z.string().optional(),
+      markup: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('the filter as SVG filter primitives with {{placeholders}}; use `source` instead for a component'),
+      source: z
+        .string()
+        .optional()
+        .describe(
+          'Preferred: the filter as a React-style TSX component (what users see in the Filter Editor). `export const controls = { size: { type: "number", label: "Size", default: 8, min: 0, max: 40 }, color: { type: "color", label: "Colour", default: "#0ef" } } as const;` then `export default function MyFilter({ size, color, t, box }) { return (<><feGaussianBlur in="SourceAlpha" stdDeviation={size} result="b"/><feFlood floodColor={color}/><feComposite in2="b" operator="in"/></>); }`. Props: each control, t (seconds; using it makes it move) and box {x, y, width, height} (the shape\'s bounds, for placing feTile/feFlood regions). Return only filter primitives (fe…). Globals: tau, pi, sin, cos, mix, clamp, smoothstep, frac, mod, noise, random, channel(color, "r"|"g"|"b"), steps(n). Runs in a sandbox; only "react" may be imported.',
+        ),
+      params: z.array(effectParam).max(20).optional(),
+      folder: z.string().optional().describe('Filesystem folder path, e.g. "Effects/Glows"'),
+    },
+    annotations: edit,
+  },
+  (args) => run('createFilterPreset', args),
+);
+
+server.registerTool(
+  'update_filter_preset',
+  {
+    title: 'Update filter preset',
+    description: "Changes a project filter preset's name, description, Filesystem folder, component `source`, or markup and params. Every shape using it updates. Built-in presets can't be changed.",
+    inputSchema: {
+      presetId: z.string(),
+      name: z.string().min(1).optional(),
+      description: z.string().optional(),
+      markup: z.string().min(1).optional(),
+      source: z
+        .string()
+        .optional()
+        .describe('replaces the filter with this React-style TSX component (same format as create_filter_preset)'),
+      params: z.array(effectParam).max(20).optional(),
+      folder: z.string().optional().describe('move it to this Filesystem folder; "" = top level'),
+    },
+    annotations: edit,
+  },
+  (args) => run('updateFilterPreset', args),
+);
+
+server.registerTool(
+  'delete_filter_preset',
+  {
+    title: 'Delete filter preset',
+    description: 'Deletes a project filter preset. Effects still using it stop changing their shapes.',
+    inputSchema: { presetId: z.string() },
+    annotations: { ...edit, destructiveHint: true },
+  },
+  (args) => run('deleteFilterPreset', args),
 );
 
 server.registerTool(
@@ -604,7 +865,7 @@ server.registerTool(
     inputSchema: {
       shapeId: z.string(),
       id: z.string(),
-      type: z.enum(['outline', 'insetShadow', 'dropShadow']),
+      type: z.enum(['outline', 'insetShadow', 'dropShadow', 'effect']),
     },
     annotations: { ...edit, destructiveHint: true },
   },
@@ -620,6 +881,8 @@ server.registerTool(
       'circle/ellipse: x, y = center (defaults radius 40 / radiusX 80, radiusY 40). rectangle/image: x, y = top-left (defaults 60×60 / 200×200).',
       'text: x, y = baseline start. line/polyline/polygon: give `points`; path: give `properties.d` (SVG path data); x and y are ignored.',
       'mirror: x, y = top-left of its frame (default 320×320, 4 radial sections); then draw artwork inside its first section (top-right wedge for radial, left column for side-by-side) and move_into_group it into the mirror.',
+      'motionPath: x, y = top-left of an empty drop box. move_into_group an outline (line, path, rectangle…) into it first: that becomes the path; then move_into_group the shape that travels along it. convert_to_motion_path turns an existing outline into one. Change properties.motionPath.progress inside a clip (0 → 100) to move the shape.',
+      'draw: x, y = top-left of an empty drop box. move_into_group shapes with a stroke (or plain groups of them) into it; set properties.draw.end 0 so they start hidden, then 100 inside a clip to draw them on.',
     ].join(' '),
     inputSchema: {
       type: shapeType,
@@ -708,14 +971,41 @@ server.registerTool(
   {
     title: 'Move into group',
     description:
-      'Moves shapes into an existing group or mirror, keeping where they appear on the canvas; they leave their previous group. groupId "camera" puts them in the camera group so they move and zoom with the camera (HUDs, titles, subtitles, score); the first such move creates it. Bones, joints and arrays cannot take children, and a group cannot go inside its own descendants.',
+      'Moves shapes into an existing group, mirror, motion path or draw, keeping where they appear on the canvas; they leave their previous group. A motion path takes two: the first shape becomes its path (an outline, not a group, text or image) and the next travels along it. A draw takes any shapes with outlines. groupId "camera" puts them in the camera group so they move and zoom with the camera (HUDs, titles, subtitles, score); the first such move creates it. Bones, joints, arrays and morphs cannot take children here, and a group cannot go inside its own descendants. release_from_modifier takes a shape back out of a motion path or draw.',
     inputSchema: {
       ids: z.array(z.string()).min(1),
-      groupId: z.string().describe('a group or mirror id, or "camera"'),
+      groupId: z.string().describe('a group, mirror, motion path or draw id, or "camera"'),
     },
     annotations: edit,
   },
   (args) => run('moveIntoGroup', args),
+);
+
+server.registerTool(
+  'release_from_modifier',
+  {
+    title: 'Release from modifier',
+    description:
+      'Takes a shape out of a motion path, draw or morph and puts it back on the canvas where it appears now (fully drawn, if it was in a draw). Releasing a motion path\'s path leaves it empty until another outline is moved in.',
+    inputSchema: {
+      modifierId: z.string().describe('the motion path, draw or morph'),
+      id: z.string().describe('the shape inside it to release'),
+    },
+    annotations: edit,
+  },
+  (args) => run('releaseFromModifier', args),
+);
+
+server.registerTool(
+  'convert_to_motion_path',
+  {
+    title: 'Convert to motion path',
+    description:
+      'Turns a non-group shape with an outline (line, polyline, polygon, path, rectangle, circle, ellipse) into a motion path that uses it as its path, in the same place. Then move_into_group the shape that should travel along it.',
+    inputSchema: { id: z.string() },
+    annotations: edit,
+  },
+  (args) => run('convertToMotionPath', args),
 );
 
 server.registerTool(
@@ -873,12 +1163,16 @@ server.registerTool(
   {
     title: 'Set camera',
     description:
-      'Sets the camera start frame position and width, independently of the canvas, optionally shows or hides it in Layers, and sets a follow target. Camera height follows the output aspect ratio; use update_cutscene to animate camera moves. follow moves the camera along with a shape or group by however far it travels from its starting position (camera clips still add their own pan and zoom); null stops following. Returns the frame, follow target and camera group.',
+      'Sets the camera start frame position and width, independently of the canvas, optionally shows or hides it in Layers, sets a follow target, and sets what the editor canvas shows (viewMode: "viewport", the default, shows only what the camera sees; "full" the whole drawing area; fullscreen and exports always use the camera). Camera height follows the output aspect ratio; use update_cutscene to animate camera moves. follow moves the camera along with a shape or group by however far it travels from its starting position (camera clips still add their own pan and zoom); null stops following. Returns the frame, follow target and camera group.',
     inputSchema: {
       x: z.number().optional(),
       y: z.number().optional(),
       width: z.number().min(40).optional(),
       visible: z.boolean().optional().describe('show the implicit camera in Layers'),
+      viewMode: z
+        .enum(['full', 'viewport'])
+        .optional()
+        .describe('editor canvas: only the camera view (viewport) or the whole drawing area (full)'),
       follow: z
         .string()
         .nullable()
@@ -1253,10 +1547,14 @@ server.registerTool(
   {
     title: 'Add timeline',
     description:
-      'Creates or opens the one timeline belonging to shapeId. A group or sprite is one object. Omit shapeId for an unassigned row, then bind it with update_timeline. New timelines contain no clips.',
+      'Creates or opens a timeline for shapeId (a group or sprite is one object). An object can have several timelines, separate animations that play together (e.g. one moves it, one spins it): pass newTimeline true to add another instead of opening its first. Each timeline controls the properties it animates; where two animate the same one, the lower timeline wins. Omit shapeId for an unassigned row, then bind it with update_timeline. New timelines contain no clips.',
     inputSchema: {
       name: z.string().optional(),
       shapeId: z.string().optional(),
+      newTimeline: z
+        .boolean()
+        .optional()
+        .describe('add another, separate timeline even if the shape already has one'),
     },
     annotations: edit,
   },
@@ -1267,7 +1565,7 @@ server.registerTool(
   {
     title: 'Update timeline',
     description:
-      'Changes the name or mute state, or assigns shapeId to an unassigned timeline. An assigned shape cannot be replaced. A shape can have only one timeline.',
+      'Changes the name or mute state, or assigns shapeId to an unassigned timeline. An assigned shape cannot be replaced. A shape may have several timelines; mute one to turn its animation off.',
     inputSchema: {
       timelineId: z.string(),
       shapeId: z.string().optional(),
@@ -1663,13 +1961,17 @@ const features = [
   [
     'set_editor',
     'Switch editor',
-    'Open the scene editor, a specific sprite animation, or a pattern\'s tile. Subsequent drawing, batch and timeline tools act on this visible editor.',
+    'Open the scene editor, a specific sprite animation, a pattern\'s tile, or the Filter or Particle Editor (code for project presets, shown in place of the canvas). Subsequent drawing, batch and timeline tools act on this visible editor.',
     'setEditor',
     {
-      view: z.enum(['scene', 'spritesheet', 'pattern']),
+      view: z.enum(['scene', 'spritesheet', 'pattern', 'filters', 'particles']),
       sheetId: z.string().optional(),
       pageId: z.string().optional(),
       patternId: z.string().optional().describe('pattern: the tile to draw'),
+      presetId: z
+        .string()
+        .optional()
+        .describe('filters/particles: the project preset to open in the Filter or Particle Editor'),
     },
   ],
   [
@@ -1707,10 +2009,24 @@ const features = [
   [
     'list_project_files',
     'List project files',
-    'List file metadata and project folders, without embedding file data in the reply.',
+    'The whole project Filesystem: folders, imported files (metadata only), sprites, and filter and particle presets, each with its folder.',
     'listProjectFiles',
     {},
     true,
+  ],
+  [
+    'rename_project_folder',
+    'Rename project folder',
+    'Renames a Filesystem folder; everything inside it (sub-folders, sprites, files, filter and particle presets) moves along.',
+    'renameProjectFolder',
+    { path: z.string().min(1).describe('the folder, e.g. "Effects/Glows"'), name: z.string().min(1).describe('its new name (no /)') },
+  ],
+  [
+    'update_project_file',
+    'Rename or move a project file',
+    'Renames an imported project file or moves it to another Filesystem folder ("" = top level).',
+    'updateProjectFile',
+    { fileId: z.string(), name: z.string().min(1).optional(), folder: z.string().optional() },
   ],
   [
     'create_project_folder',

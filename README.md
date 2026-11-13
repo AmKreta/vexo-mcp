@@ -45,14 +45,16 @@ Each `server.registerTool(...)` call automatically exposes its name, title, desc
 | History             | `undo`, `redo` — undo or redo the most recent editor change.                                                                                                                                                                                                                                                                                                                                          |
 | Documents           | `list_documents`, `open_document`, `new_document`, `save_document`, `export_document`, `get_document` — browse, load, create, save, export JSON, and inspect the current page.                                                                                                                                                                                                                       |
 | Images              | `search_images` — search clip art, illustrations, vectors, and photos for use on the canvas.                                                                                                                                                                                                                                                                                                         |
-| Shapes              | `add_shape`, `update_shape`, `get_shape`, `delete_shapes`, `duplicate_shapes`, `select_shapes`, `group_shapes`, `move_into_group` — draw, inspect, modify, arrange, and remove shapes, groups and mirrors (`add_shape` type `mirror`). Shape properties include modifiers, particles, mirror sections, geometry, text, CSS filters, paint, and transforms.                                                                                                                    |
+| Shapes              | `add_shape`, `update_shape`, `get_shape`, `delete_shapes`, `duplicate_shapes`, `select_shapes`, `group_shapes`, `move_into_group` — draw, inspect, modify, arrange, and remove shapes, groups, mirrors, motion paths and draws (`add_shape` type `mirror`, `motionPath` or `draw`); `release_from_modifier` and `convert_to_motion_path` manage motion paths and draws. Shape properties include modifiers, particles, mirror sections, motion path and draw settings, geometry, text, CSS filters, paint, and transforms.                                                                                                                    |
 | Bones and camera    | `add_bone`, `connect_bones`, `update_joint`, `disconnect_joint`, `add_bone_socket`, `remove_bone_sockets`, `attach_bone_artwork`, `detach_bone_artwork`, `set_camera`, `remove_from_camera` — build and edit rigs, set joint angles/limits and IK, attach artwork, adjust the independent camera frame and its follow target, and manage artwork attached to the camera.                                                                                                                                 |
 | Audio               | `get_audio`, `add_audio_timeline`, `update_audio_timeline`, `delete_audio_timeline`, `add_audio_clip`, `update_audio_clip`, `delete_audio_clip`, `set_audio_duration` — create narration or sound clips, arrange and mute audio rows, and set the page’s audio length.                                                                                                                                                                      |
 | Layers              | `set_layer_visibility` — show or hide page layers without using opacity or adding animation. Hiding a group also hides its descendants.                                                                                                                                                                                                                                                                   |
-| Reusable styling    | `list_colors`, `add_color`, `update_color`, `remove_color`, `add_gradient`, `update_gradient`, `remove_gradient`, `add_svg_filter`, `update_svg_filter`, `remove_svg_filter` — manage shared palette colors and gradients, plus shape-attached outline and inset-shadow filters.                                                                                                                     |
+| Reusable styling    | `list_colors`, `add_color`, `update_color`, `remove_color`, `add_gradient`, `update_gradient`, `remove_gradient`, `add_svg_filter`, `update_svg_filter`, `remove_svg_filter` — shared palette colours and gradients; outline and shadow filters; creative `effect` filters (grain, paper, ripple, boil, glitch, crt, hologram, smoke, dissolve, goo, pixelate, neon, duotone, posterize, emboss, rgbSplit, inkEdges) whose controls can be animated in clips. Shapes also take `style.blendMode` and `style.strokeTaper`. |
+| Custom filters      | `list_filter_presets`, `create_filter_preset`, `update_filter_preset`, `delete_filter_preset` — project filters written as React-style TSX components (`source`) or filter markup; they live in the Filesystem and appear under Project presets. |
+| Particles           | `list_particle_presets`, `create_particle_preset`, `update_particle_preset`, `delete_particle_preset` — particle setups, including `type: "custom"` particles drawn by a TSX `component` (or an expression `script`). Shapes made from a preset follow its edits. |
 | Canvas and pages    | `set_canvas`, `add_page`, `remove_page`, `set_active_page` — set the background and dimensions, and organize scenes as pages.                                                                                                                                                                                                                                                                        |
 | Timelines and clips | `get_timelines`, `add_timeline`, `rename_timeline`, `delete_timeline`, `update_timeline`, `add_cutscene`, `open_cutscene`, `update_cutscene`, `delete_cutscene`, `set_transition` — create or open one timeline per shapeId (including groups and sprites), or add an empty row and choose its shape later. The shape binding is permanent. Then edit clips, timing, easing, repeats, camera views and enter/exit effects. Artwork remains on the page when its timeline is removed. |
-| Project assets       | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `set_sprite_controls`, `set_editor`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`, `list_project_files`, `create_project_folder`, `add_project_file`, `place_project_file`, `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern` — create reusable vector sprites and repeating patterns, and manage project files and folders. |
+| Project assets       | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `set_sprite_controls`, `set_editor`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`, `list_project_files`, `create_project_folder`, `rename_project_folder`, `add_project_file`, `update_project_file`, `place_project_file`, `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern` — reusable sprites and patterns, and the project Filesystem (folders, files, sprites, filter and particle presets). `set_editor` opens the Scene, Sprite Sheet, Pattern, Filter or Particle Editor. |
 | Playback and guides | `set_loop`, `set_play_range`, `play_animation`, `stop_animation`, `set_helpers` — control preview and show or hide editor guides.                                                                                                                                                                                                                                                                    |
 | Output              | `export_svg`, `export_animated_svg`, `export_mp4`, `screenshot` — export static or animated work, or preview a PNG (pass `time` to inspect an animation moment).                                                                                                                                                                                                                                     |
 
@@ -65,6 +67,8 @@ Each `server.registerTool(...)` call automatically exposes its name, title, desc
 - Group related shapes as soon as they form an object, give the group a clear name, and nest groups for larger assemblies. Prefer grouping before adding timelines; animate the group when its parts should move together.
 - For character rigs, add bone segments or sockets, connect free tail/head endpoints, and attach the drawn artwork to the bones. Use `update_joint` for joint angle limits and terminal-chain IK. The camera frame is independent of the drawing canvas; `set_camera` adjusts its start position and width and can follow a moving shape (`follow`), while camera animation belongs in a camera timeline. `move_into_group` with `groupId: "camera"` attaches HUDs, titles or subtitles to the camera so they stay put on screen; `remove_from_camera` detaches them.
 - For symmetric artwork, `add_shape` a `mirror`, draw only its first section, then `move_into_group` those shapes into the mirror; the other sections reflect them live.
+- To move a shape along a route, `add_shape` a `motionPath`, `move_into_group` an outline into it first (it becomes the path) and then the travelling shape, or `convert_to_motion_path` an existing outline. Change `properties.motionPath.progress` from 0 to 100 inside a clip to move it; `rotate` turns it along the way.
+- To draw outlines on stroke by stroke, `add_shape` a `draw`, `move_into_group` stroked shapes into it, set `properties.draw.end` to 0, then to 100 inside a clip. `order`, `direction`, `startPoint` and `fill` shape how it draws.
 - Use `get_audio` to inspect audio before editing. Add speech clips for browser-synthesized narration or file clips with an audio URL/data URL, then use `update_audio_clip` for timing and voice settings.
 - `get_document` reports `hiddenShapeIds`. Use `set_layer_visibility` for page-layer visibility rather than changing opacity in a clip.
 - For a repeating motion, animate one cycle in a cutscene, then set `repeat` and `loop` with `update_cutscene`. Use `alternate` for back-and-forth motion, `continue` when movement or rotation should accumulate, and `repeatDelay` for a pause. Repeats stop at the next cutscene or the playback-range end.
@@ -100,7 +104,7 @@ Project JSON export includes the whole project, even while a sprite page is open
 | Batching               | `batch_edit` — 1–50 ordered add/update/group/delete operations in one bridge call.                                   |
 | Sprites                | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `update_sprite_page`, `set_editor`. |
 | Controls and placement | `set_sprite_controls`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`.                                 |
-| Filesystem             | `create_project_folder`, `list_project_files`, `add_project_file`, `place_project_file`.                             |
+| Filesystem             | `create_project_folder`, `rename_project_folder`, `list_project_files`, `add_project_file`, `update_project_file`, `place_project_file`. |
 | Patterns               | `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern`, `set_editor` with `view: "pattern"`.          |
 | Stacking               | `bring_to_front` — permanent, or temporary until another shape is selected.                                          |
 
@@ -149,6 +153,43 @@ Batch edits use the same command validation and timeline ownership rules as sing
 stop on the first failure and report completed operations, real IDs, the failing index and remaining
 count. Completed work stays applied; retry only unfinished work. Edits stop if the document,
 page or editing clip changes. The editor paints between small chunks to remain responsive.
+
+### Write a custom filter or particles
+
+Custom filters and particles are React-style TSX components, the same code people see in the
+Filter and Particle Editors. They run in a sandboxed engine (QuickJS) in the editor, not on the
+page, and their output is sanitized; only `react` can be imported.
+
+1. Filter: `create_filter_preset` with `name` and `source`:
+
+   ```tsx
+   export const controls = {
+     color: { type: 'color', label: 'Glow colour', default: '#00e5ff' },
+     size: { type: 'number', label: 'Size', default: 8, min: 0, max: 40 },
+   } as const;
+   export default function Glow({ color, size, t }) {
+     return (
+       <>
+         <feGaussianBlur in="SourceAlpha" stdDeviation={size * (0.6 + 0.4 * sin(t * tau))} result="b" />
+         <feFlood floodColor={color} />
+         <feComposite in2="b" operator="in" result="glow" />
+         <feMerge><feMergeNode in="glow" /><feMergeNode in="SourceGraphic" /></feMerge>
+       </>
+     );
+   }
+   ```
+
+   Props: each control, `t` (seconds) and `box` (the shape's bounds). Apply it with
+   `add_svg_filter` `{ type: "effect", preset: <id> }`; change its controls inside a clip with
+   `update_svg_filter` to animate them.
+2. Particles: set `properties.particles` to `{ type: "custom", component }` with `update_shape`,
+   or save it first with `create_particle_preset`. The component exports `emitter` (count, ttl,
+   spread, loop, size, colours) and `controls`, and draws one particle around (0, 0):
+   `export default function Spark({ u, k, size, color }) { return <circle cx={cos(k*tau)*80*u} cy={sin(k*tau)*80*u} r={size} fill={color} opacity={1-u} />; }`.
+   Props: `t`, `u`, `T`, `i`, `n`, `k`, `w`, `r1`…`r6`, the emitter settings, `color`, and each control.
+3. Helpers in both: `tau`, `pi`, `sin`, `cos`, `mix`, `clamp`, `smoothstep`, `frac`, `mod`,
+   `noise`, `random`, `channel(color, "r")`, `steps(n)`, `mixColor(a, b, k)`.
+4. `set_editor` with `view: "filters"` or `"particles"` (and `presetId`) shows the code to the user.
 
 ### Make a repeating pattern
 
