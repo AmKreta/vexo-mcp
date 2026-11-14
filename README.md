@@ -5,20 +5,51 @@ Lets an AI agent (Claude Code, Claude Desktop, or any MCP client) use React Svg 
 The editor keeps its documents in the browser (Redux state and IndexedDB), so the agent works through the editor tab you have open:
 
 ```
-agent ⇄ (MCP over stdio) ⇄ mcp-server ⇄ (websocket, 127.0.0.1:7341) ⇄ editor tab
+agent ⇄ (MCP over HTTP or stdio) ⇄ mcp-server ⇄ (websocket, 127.0.0.1:7341) ⇄ editor tab
 ```
 
 Each tool runs the editor's own actions in that tab, so you see every change on the canvas as it happens, and edits are recorded into the open clip, just as if you had made them yourself. The API keeps the older `cutscene` name for clip-related tools.
 
 ## Setup
 
+The server runs in one of two ways:
+
+- **As a Docker service (default):** always running, and agents connect to it over HTTP at `http://127.0.0.1:7342/mcp`. This is what the repo's `.mcp.json` uses.
+- **Over stdio:** the agent starts `node src/index.js` itself, with no Docker. Use this if you don't run Docker.
+
+### With Docker
+
+The `mcp` service in the repository's `docker-compose.yml` starts with the rest of the stack:
+
+```sh
+docker compose up -d mcp      # or ./scripts/start-local.sh, which starts it too
+docker compose ps mcp         # "healthy" once it answers on /health
+```
+
+**Claude Code:** the repo's `.mcp.json` registers the server as `svgtool` at `http://127.0.0.1:7342/mcp`. Approve it when Claude Code asks, or run `/mcp`.
+
+**Other clients** that speak Streamable HTTP, for example:
+
+```json
+{
+  "mcpServers": {
+    "svgtool": {
+      "type": "http",
+      "url": "http://127.0.0.1:7342/mcp"
+    }
+  }
+}
+```
+
+Several agents can connect at once; each gets its own session, and they all drive the same editor tab. Both ports are published on 127.0.0.1 only: 7342 for agents (set `MCP_HTTP_PUBLISH_PORT` to change it, and the URL above to match) and 7341 for the editor bridge (set `MCP_BRIDGE_PORT`, and `VITE_MCP_BRIDGE_URL` in the editor to match). The server's source is mounted into the container, so after editing it run `docker compose restart mcp`; rebuild with `docker compose up -d --build mcp` after changing dependencies. Only one copy can hold the bridge port, so stop a locally started server first.
+
+### Over stdio, without Docker
+
 ```sh
 cd mcp-server && npm install
 ```
 
-**Claude Code:** the repo's `.mcp.json` already registers the server as `svgtool`. Approve it when Claude Code asks, or run `/mcp`.
-
-**Other clients**, for example Claude Desktop's `claude_desktop_config.json`:
+Point the client at the script, for example in Claude Desktop's `claude_desktop_config.json` (or the repo's `.mcp.json`, in place of the HTTP entry):
 
 ```json
 {
@@ -31,33 +62,13 @@ cd mcp-server && npm install
 }
 ```
 
-Then start the editor from the repository root with `npm run dev:frontend` and open it in a browser. In development the editor connects to the server by itself and retries every few seconds, so the server and the editor can be started in either order. Ask the agent to run `editor_status` to check the connection.
+To run the HTTP server without Docker instead, start it with `MCP_TRANSPORT=http node src/index.js`.
+
+### Connect the editor
+
+Start the editor from the repository root with `npm run dev:frontend` and open it in a browser. In development the editor connects to the server by itself and retries every few seconds, so the server and the editor can be started in either order. Ask the agent to run `editor_status` to check the connection.
 
 With several editor tabs open, the agent works in the one you focused last.
-
-**With Docker:** the repository's `docker-compose.yml` has an `mcp` service. MCP talks over stdio, so the client starts the container itself; `docker compose up` leaves it out. Build it once with `docker compose build mcp`, then point the client at:
-
-```json
-{
-  "mcpServers": {
-    "svgtool": {
-      "command": "docker",
-      "args": [
-        "compose",
-        "-f",
-        "/absolute/path/to/svgEditor/docker-compose.yml",
-        "run",
-        "--rm",
-        "-T",
-        "--service-ports",
-        "mcp"
-      ]
-    }
-  }
-}
-```
-
-Keep `-T`: a terminal would corrupt the MCP messages. `--service-ports` publishes the editor bridge on `127.0.0.1:7341` (set `MCP_BRIDGE_PORT` to change it, and `VITE_MCP_BRIDGE_URL` in the editor to match). The server's source is mounted into the container, so edits apply the next time the client starts it; rebuild after changing dependencies. Only one copy can hold the bridge port, so stop a locally started server first.
 
 ## Tools
 
@@ -107,10 +118,14 @@ Changes stay in the tab until `save_document` is called, as in the editor itself
 | server | `SVG_EDITOR_BRIDGE_PORT`     | `7341`                | port the editor connects to                                                 |
 | server | `SVG_EDITOR_BRIDGE_HOST`     | `127.0.0.1`           | address the websocket listens on; `0.0.0.0` inside Docker                   |
 | server | `SVG_EDITOR_ALLOWED_ORIGINS` | none                  | comma-separated extra sites allowed to connect; localhost is always allowed |
+| server | `MCP_TRANSPORT`              | `stdio`               | `http` to serve MCP over HTTP at `/mcp` (the Docker service does)           |
+| server | `MCP_HTTP_PORT`              | `7342`                | port of the HTTP endpoint                                                   |
+| server | `MCP_HTTP_HOST`              | `127.0.0.1`           | address the HTTP endpoint listens on; `0.0.0.0` inside Docker               |
+| server | `MCP_HTTP_ALLOWED_HOSTS`     | none                  | comma-separated extra `Host` headers to accept; localhost is always allowed |
 | editor | `VITE_MCP_BRIDGE_URL`        | `ws://127.0.0.1:7341` | must match the server's port                                                |
 | editor | `VITE_MCP_BRIDGE`            | on in development     | `true` to connect from a production build, `false` to never connect         |
 
-The websocket listens on 127.0.0.1 (in Docker it listens inside the container, and the port is published on 127.0.0.1 only), and it refuses browser pages from sites other than localhost unless you list them.
+The websocket and the HTTP endpoint listen on 127.0.0.1 (in Docker they listen inside the container, and the ports are published on 127.0.0.1 only). The websocket refuses browser pages from sites other than localhost unless you list them; the HTTP endpoint refuses browser pages from other sites and requests whose `Host` isn't localhost (DNS rebinding protection). `GET /health` reports whether an editor tab is connected.
 
 ## Tests
 

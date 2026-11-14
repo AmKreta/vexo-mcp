@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@vexo/editor-tools": "file:../editor-tools",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   }
