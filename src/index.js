@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { mcpTools } from '@vexo/editor-tools';
+import { checkBatchEdit, mcpTools } from '@vexo/editor-tools';
 import { EditorBridge } from './bridge.js';
 import { startHttpServer } from './http.js';
 
@@ -156,6 +156,13 @@ const handlers = {
     } catch (err) {
       return { isError: true, content: [{ type: 'text', text: err.message }] };
     }
+  },
+  // batch_edit's schema leaves each operation's args open (repeating every shape schema in it
+  // would double its size), so each operation is checked against its own tool's schema here
+  batch_edit: async (args) => {
+    const problem = checkBatchEdit('mcp', args.operations);
+    if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
+    return run('batchEdit', args);
   },
 };
 for (const { name, method, ...config } of mcpTools) {
