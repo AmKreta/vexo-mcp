@@ -45,8 +45,9 @@ const SERVER_OPTIONS = {
     'Camera group: move_into_group with groupId "camera" attaches artwork to the camera so it keeps its place on screen while the camera pans and zooms (HUDs, titles, subtitles). remove_from_camera takes it back out. get_document reports camera.follow and camera.group.',
     'Mirror: add_shape type "mirror" makes a frame divided into sections (radial wedges or side-by-side columns, default 4). Draw artwork inside its first section, then move_into_group it into the mirror; the other sections reflect it live. Change sections, mode or size with update_shape properties.mirror. Guides show only while editing.',
     'Motion path: add_shape type "motionPath" places an empty drop box. move_into_group an outline into it first (a line, pen path, rectangle…; it becomes the path), then the shape that should travel. Or convert_to_motion_path an existing outline. Inside a clip, update_shape properties.motionPath.progress from 0 to 100 moves the shape from start to end; rotate turns it to face its direction; showPath false hides the path. release_from_modifier takes the path or shape back out.',
+    'Text effects: add_shape type "typewriter" or "bend" places an empty drop box that takes only text shapes (move_into_group). Typewriter: set properties.typewriter.progress 0, then 100 inside a clip (linear ease) to type the text on; unit char|word, order together|sequence, cursor bar|block|underscore|none. Bend: properties.bend.amount −100…100 curves the text along an arc (positive arches up, 100 = half circle) and offset 0…100 slides it along; both animate in clips.',
     'Draw: add_shape type "draw" places an empty drop box; move_into_group shapes with a stroke into it. Set properties.draw.end 0 so they start hidden, then inside a clip set end 100 to draw them on (start 0 → 100 with end 100 erases them). order "sequence" draws one after another; direction and startPoint choose where and which way the pen goes; fill "reveal" fades fills in as each outline finishes. Only strokes are drawn.',
-    'Audio: get_audio lists audio timelines, clips, their narration state and the Kokoro voices. add_audio_clip with text adds narration (kind "speech", voice e.g. "af_heart", "am_michael", "bf_emma"); the editor generates the audio automatically and the clip takes the spoken length, so call generate_speech_audio (repeat until audio is "ready") before relying on its duration, e.g. to time animation to the words. Use one audio timeline per speaker. File clips accept an audio data URL or source URL. set_play_range sets one start and end for the video and audio timelines; audio clips that run longer extend the end.',
+    'Audio: get_audio lists audio timelines, clips, their narration state and the Kokoro voices. add_audio_clip with text adds narration (kind "speech", voice e.g. "af_heart", "am_michael", "bf_emma"); the editor generates the audio automatically and the clip takes the spoken length, so call generate_speech_audio (repeat until audio is "ready") before relying on its duration, e.g. to time animation to the words. Use one audio timeline per speaker. File clips accept an audio data URL or source URL. set_play_range sets one start and end for the video and audio timelines; audio clips that run longer extend the end. export_subtitles returns SRT or VTT captions made from the narration, timed to the MP4 export, for YouTube and other platforms.',
     'Animation: each timeline is a row of clips (the API tool names retain "cutscene"). Shape edits are recorded into the open clip as changes from the previous clip; during it, the object animates from the previous state to the new one.',
     'Each timeline animates one object; an object can have several (separate animations that play together, layered property by property; add_timeline with newTimeline true adds one). Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
     'To animate: draw the starting artwork, call add_timeline with shapeId, then add_cutscene and move or restyle that object. There is no implicit Start clip. Use screenshot with `time` to inspect an animation moment.',
@@ -139,6 +140,22 @@ const handlers = {
             },
           },
           { type: 'text', text: `Exported ${filename}` },
+        ],
+      };
+    } catch (err) {
+      return { isError: true, content: [{ type: 'text', text: err.message }] };
+    }
+  },
+  export_subtitles: async (args) => {
+    try {
+      const { filename, mimeType, text, cues } = await bridge.call('exportSubtitles', args);
+      return {
+        content: [
+          {
+            type: 'resource',
+            resource: { uri: `vexo-export://${encodeURIComponent(filename)}`, mimeType, text },
+          },
+          { type: 'text', text: `Exported ${filename} (${cues} cues)` },
         ],
       };
     } catch (err) {
