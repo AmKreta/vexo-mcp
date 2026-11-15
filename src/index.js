@@ -32,13 +32,15 @@ const bridge = new EditorBridge({ port: PORT, host: HOST, allowedOrigins: ALLOWE
 const SERVER_INFO = { name: 'svgtool', version: '0.1.0' };
 const SERVER_OPTIONS = {
   instructions: [
-    'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search clip art, illustrations, vectors and photos; manage palettes; animate with timelines and clips; preview and export SVG, PNG, JSON or MP4.',
+    'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search free images, videos and audio across providers; manage palettes; animate with timelines and clips; preview and export SVG, PNG, JSON or MP4.',
     'The editor must be open in a browser (npm run dev:frontend, then http://localhost:3000); call editor_status if a tool says no editor is connected.',
     'Reuse before you draw: before building more than one scene, make a sprite sheet (create_sprite_sheet, draw it with set_editor view "spritesheet") for every recurring character or prop and place it in each scene with place_sprite; give it controls (set_sprite_controls binds any property of shapes inside it, such as a fill color, text, visibility, rotation or size; list_sprite_properties shows them) for per-scene variations instead of redrawing. For repeated geometry (halftone dots, fences, stars, tiles, crowds of the same shape) draw ONE shape and give it an array modifier (properties.modifiers) or use a pattern, never dozens of copies. Run get_reuse_summary before adding scenes and before exporting to catch missed reuse.',
     'Use batch_edit to build a complete object per call, inspect after each meaningful pass, then refine in batches. Batch references ($name) allow grouping and editing new shapes without waiting for IDs.',
     'Patterns: create_pattern makes a repeating tile; open it with set_editor(view: "pattern", patternId), draw the tile with the normal tools, then set any shape\'s style.fill or style.stroke to its `fill` reference (url(#id)) from list_patterns. update_pattern changes size, scale, rotation or background.',
     'Use list_sprites, create_sprite_sheet, add_sprite_page and set_editor for project-wide vector sprites. Draw each animation using the normal tools; place_sprite adds an instance plus a timed clip. Instances expose controls; sprites may nest but cannot include themselves.',
     'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
+    'Media: search_media(query, media, provider, filters) searches one provider for images (iconify for icons/logos/flags, wikimedia for maps and diagrams, openverse for CC SVGs, unsplash/pexels/pixabay for photos, nasa for space), audio (freesound for effects, jamendo or openverse-audio for music) or video (pexels-video, pixabay-video, wikimedia-video, nasa-video). list_media_providers lists the providers that are set up and their filters. Results are numbered and come with a contact-sheet picture of the thumbnails: look at it, then use one with pick_media(number), which places an image or video (returning its shapeId) or adds audio to the timeline. An image shape holds a picture, GIF or video, typed from its file; update_media sets a video\'s start/end (page times), trim, rate, loop, mute, volume and fit. Video timing is not animatable and never goes in a clip; animate the shape (opacity, scale, position) for entrances and exits. The page plays at least until its last video ends, and MP4 export includes video sound unless muted. To choose from what the user sees in Insert → Media, call get_media_dialog (same numbers as the badges on screen) and pick_media(number, from: "dialog"). Credit the author when the license asks.',
+    'Choosing between drawing and media: the user\'s instructions come first. If they say not to use images, video, stock media or clip art (or to draw everything by hand), do not search or place any; if they ask for media only, use media. Otherwise: (1) For complex artwork that will not be animated part by part (detailed scenery and backgrounds, buildings, vehicles, objects, maps, flags, logos, icons, decorative illustrations), prefer an existing SVG or clip art over drawing hundreds of shapes: search_media with svg results (openverse extension "svg", wikimedia type "svg", iconify, nounproject, permaclipart, openclipart) and place it with pick_media. Prefer SVG over raster images so it stays sharp. (2) Draw with vector shapes anything whose parts move on their own (characters that walk, talk or wave, limbs and rigs, morphs, draw-on and typewriter effects, charts and diagrams that build up) and anything simple (text, basic shapes, arrows, callouts); an imported picture only animates as a whole (position, size, rotation, opacity, filters). Recurring animated characters belong in sprite sheets. (3) Use photos for realistic subjects and photo backgrounds, video for real footage (b-roll, backgrounds, demonstrations; set start/end with update_media and mute it under narration), GIFs or stickers for playful accents, and audio for music beds and sound effects (keep music volume low under narration). (4) Look at the contact sheet before choosing and keep one consistent style per scene (do not mix flat icons, photos and detailed illustrations at random); size the result to the layout, set fit, layer it correctly, and check with screenshot. Use media where it adds something, not on every element. (5) If a provider is unavailable or nothing fits, draw it instead. Respect licenses: prefer public-domain/CC0 or commercial-use results, and tell the user which results need credit (author and license from the result).',
     'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
     'Use add_shape and update_shape for geometry, text, paint, transforms, CSS filters, modifiers and particles. Use add_svg_filter for outline or inset-shadow effects attached to a shape; palette colors and gradients can be reused as url(#id) fills.',
     'Illustration polish: shade with a shape set to style.blendMode "multiply" (e.g. a soft purple shape over the dark side) and light with "screen", inside the character\'s group (groups isolate blending, so it never darkens the background); keep shading inside the outline or clip it with the group\'s containerId + overflow hidden. add_svg_filter type "effect" adds creative filters: grain or paper for texture, boil for a hand-drawn line wobble, ripple, glitch, crt, hologram, smoke, dissolve, goo, pixelate, neon for glow, duotone/posterize for print looks, emboss, rgbSplit, inkEdges. Boil, glitch, crt, hologram, smoke and ripple move on their own; any effect control can be animated by changing it with update_svg_filter inside a clip. For anything else, write SVG filter primitives once with create_filter_preset and reuse it.',
@@ -77,13 +79,24 @@ function createServer() {
   return mcp;
 }
 
-/** Forwards a tool call to the editor tab and returns its JSON answer as text. */
+/**
+ * Forwards a tool call to the editor tab and returns its JSON answer as text. Pictures a command
+ * attaches as `__images` (e.g. search_media's numbered contact sheet) go back as image content.
+ */
 async function run(method, params = {}) {
   try {
     const result = await bridge.call(method, params);
+    const { __images: images, ...rest } =
+      result && typeof result === 'object' && !Array.isArray(result) ? result : { value: result };
+    const body = result && typeof result === 'object' && !Array.isArray(result) ? rest : result;
     return {
       ...(method === 'batchEdit' && result?.ok === false ? { isError: true } : {}),
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      content: [
+        ...(Array.isArray(images)
+          ? images.map(({ data, mimeType }) => ({ type: 'image', data, mimeType }))
+          : []),
+        { type: 'text', text: JSON.stringify(body, null, 2) },
+      ],
     };
   } catch (err) {
     return { isError: true, content: [{ type: 'text', text: err.message }] };
