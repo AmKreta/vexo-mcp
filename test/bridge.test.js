@@ -89,6 +89,24 @@ test('times out when the editor never answers', async () => {
   bridge.close();
 });
 
+test('gives slow commands their own, longer allowance', async () => {
+  const bridge = await startBridge({ timeoutMs: 100, methodTimeouts: { screenshot: 400 } });
+  assert.equal(bridge.timeoutFor('status'), 100);
+  assert.equal(bridge.timeoutFor('screenshot'), 400);
+  const slow = new WebSocket(`ws://127.0.0.1:${bridge.port}`);
+  slow.on('message', (raw) => {
+    const { id } = JSON.parse(String(raw));
+    // answers after the default timeout but within the screenshot allowance
+    setTimeout(() => slow.send(JSON.stringify({ id, result: { ok: true } })), 250);
+  });
+  await new Promise((r) => slow.on('open', r));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(await bridge.call('screenshot'), { ok: true });
+  await assert.rejects(bridge.call('status'), /within 0.1s/);
+  slow.close();
+  bridge.close();
+});
+
 test('reports a taken port instead of crashing', async () => {
   const first = await startBridge();
   const second = new EditorBridge({ port: first.port });

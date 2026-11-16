@@ -6,24 +6,50 @@ const HEARTBEAT_MS = 15000;
 export class BridgeError extends Error {}
 
 /**
+ * Commands that legitimately take longer than the default: rendering, decoding embedded media,
+ * analysing audio, waiting for a page or document to load. Values are milliseconds.
+ */
+export const SLOW_METHOD_TIMEOUTS = {
+  exportMp4: 15 * 60000,
+  exportAnimatedSvg: 3 * 60000,
+  exportSvg: 2 * 60000,
+  exportDocument: 2 * 60000,
+  exportSubtitles: 2 * 60000,
+  screenshot: 90000,
+  screenshotRegion: 90000,
+  analyzeMusicBeats: 3 * 60000,
+  generateSpeechAudio: 5 * 60000,
+  newDocument: 60000,
+  openDocument: 60000,
+  saveDocument: 60000,
+  setActivePage: 60000,
+  searchMedia: 60000,
+  pickMedia: 60000,
+  mediaDialogSearch: 60000,
+  batchEdit: 60000,
+};
+
+/**
  * Websocket server the editor tab connects to. Tools are forwarded to the most recently
  * connected tab as `{ id, method, params }` and resolve with its `{ id, result | error }` reply.
  */
 export class EditorBridge {
   /**
-   * @param {{ port: number, host?: string, allowedOrigins?: string[], timeoutMs?: number, log?: (msg: string) => void }} options
+   * @param {{ port: number, host?: string, allowedOrigins?: string[], timeoutMs?: number, methodTimeouts?: Record<string, number>, log?: (msg: string) => void }} options
    */
   constructor({
     port,
     host = '127.0.0.1',
     allowedOrigins = [],
     timeoutMs = 20000,
+    methodTimeouts = SLOW_METHOD_TIMEOUTS,
     log = () => {},
   }) {
     this.port = port;
     this.host = host;
     this.allowedOrigins = allowedOrigins;
     this.timeoutMs = timeoutMs;
+    this.methodTimeouts = methodTimeouts;
     this.log = log;
     /** open editor tabs; the last one (most recently focused, else connected) receives commands */
     this.clients = [];
@@ -141,8 +167,13 @@ export class EditorBridge {
     };
   }
 
+  /** How long to wait for `method`: its own allowance when it is a slow command, never less than the default. */
+  timeoutFor(method) {
+    return Math.max(this.timeoutMs, this.methodTimeouts[method] ?? 0);
+  }
+
   /** Runs a command in the active editor tab. */
-  call(method, params = {}) {
+  call(method, params = {}, { timeoutMs = this.timeoutFor(method) } = {}) {
     if (this.startError) {
       throw new BridgeError(
         `The editor bridge could not listen on ${this.host}:${this.port} (${this.startError.message}). Another svgtool MCP server may be running; set SVG_EDITOR_BRIDGE_PORT to use a different port, and VITE_MCP_BRIDGE_URL in the editor to match.`,
@@ -160,10 +191,10 @@ export class EditorBridge {
         this.pending.delete(id);
         reject(
           new BridgeError(
-            `The editor did not answer "${method}" within ${this.timeoutMs / 1000}s.`,
+            `The editor did not answer "${method}" within ${timeoutMs / 1000}s.`,
           ),
         );
-      }, this.timeoutMs);
+      }, timeoutMs);
       this.pending.set(id, { client, resolve, reject, timer });
       client.socket.send(JSON.stringify({ id, method, params }));
     });
