@@ -173,7 +173,7 @@ export class EditorBridge {
   }
 
   /** Runs a command in the active editor tab. */
-  call(method, params = {}, { timeoutMs = this.timeoutFor(method) } = {}) {
+  call(method, params = {}, { timeoutMs = this.timeoutFor(method), toolId } = {}) {
     if (this.startError) {
       throw new BridgeError(
         `The editor bridge could not listen on ${this.host}:${this.port} (${this.startError.message}). Another svgtool MCP server may be running; set SVG_EDITOR_BRIDGE_PORT to use a different port, and VITE_MCP_BRIDGE_URL in the editor to match.`,
@@ -190,13 +190,11 @@ export class EditorBridge {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(
-          new BridgeError(
-            `The editor did not answer "${method}" within ${timeoutMs / 1000}s.`,
-          ),
+          new BridgeError(`The editor did not answer "${method}" within ${timeoutMs / 1000}s.`),
         );
       }, timeoutMs);
       this.pending.set(id, { client, resolve, reject, timer });
-      client.socket.send(JSON.stringify({ id, method, params }));
+      client.socket.send(JSON.stringify({ id, method, params, ...(toolId ? { toolId } : {}) }));
     });
   }
 

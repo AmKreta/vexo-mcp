@@ -34,6 +34,7 @@ const SERVER_OPTIONS = {
   instructions: [
     'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search free images, videos and audio across providers; manage palettes; animate with timelines and clips; preview and export SVG, PNG, JSON or MP4.',
     'The editor must be open in a browser (npm run dev:frontend, then http://localhost:3000); call editor_status if a tool says no editor is connected.',
+    'Before generated narration, call get_tool_status for the chosen provider tool ID (add_supertonic_narration or add_kokoro_narration). Proceed only if the latest browser report says active and presentInBrowser are true and runtime.modelReady or modelInstalled is true; inspect updateAvailable too. If no recent report exists, ask the user to open the editor tab. If disabled or missing, explain how to enable or load it. Use add_supertonic_narration or add_kokoro_narration to select the provider explicitly. Supertonic accepts inline expression tags such as <sigh> and <angry>; place them in narration text and use natural punctuation to guide pacing. See the Supertonic tool description for the full tag list and known consistency limits. Kokoro’s current browser phonemizer rejects Hindi, so use Supertonic for Hindi narration. Use get_audio for current provider voices and settings.',
     'Reuse before you draw: before building more than one scene, make a sprite sheet (create_sprite_sheet, draw it with set_editor view "spritesheet") for every recurring character or prop and place it in each scene with place_sprite; give it controls (set_sprite_controls binds any property of shapes inside it, such as a fill color, text, visibility, rotation or size; list_sprite_properties shows them) for per-scene variations instead of redrawing. For repeated geometry (halftone dots, fences, stars, tiles, crowds of the same shape) draw ONE shape and give it an array modifier (properties.modifiers) or use a pattern, never dozens of copies. Run get_reuse_summary before adding scenes and before exporting to catch missed reuse.',
     'Use batch_edit to build a complete object per call, inspect after each meaningful pass, then refine in batches. Batch references ($name) allow grouping and editing new shapes without waiting for IDs.',
     'Patterns: create_pattern makes a repeating tile; open it with set_editor(view: "pattern", patternId), draw the tile with the normal tools, then set any shape\'s style.fill or style.stroke to its `fill` reference (url(#id)) from list_patterns. update_pattern changes size, scale, rotation or background.',
@@ -59,7 +60,7 @@ const SERVER_OPTIONS = {
     'Animation: each timeline is a row of clips (the API tool names retain "cutscene"). Shape edits are recorded into the open clip as changes from the previous clip; during it, the object animates from the previous state to the new one.',
     'Each timeline animates one object; an object can have several (separate animations that play together, layered property by property; add_timeline with newTimeline true adds one). Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
     'To animate: draw the starting artwork, call add_timeline with shapeId, then add_cutscene and move or restyle that object. There is no implicit Start clip. Use screenshot with `time` to inspect an animation moment.',
-    'Reading: read precisely instead of dumping everything. get_document with includeShapes false gives the overview; get_layer_tree shows structure and draw order (bottom → top); find_shapes locates shapes by regex over name, text or id, or by type, fill, canvas area, parent or animated; get_shapes / get_shape with `fields` read only the properties you need; get_timeline reads one object\'s animation. All of these take `page` to read another page without switching. screenshot_region zooms into shapes or an area (with `time`); shapes_at_point lists what is drawn at a spot, top first, to find what covers something. Mind layer order: draw backgrounds and panels before the objects that sit or move on them, and if a panel is added later, bring those objects to the front.',
+    "Reading: read precisely instead of dumping everything. get_document with includeShapes false gives the overview; get_layer_tree shows structure and draw order (bottom → top); find_shapes locates shapes by regex over name, text or id, or by type, fill, canvas area, parent or animated; get_shapes / get_shape with `fields` read only the properties you need; get_timeline reads one object's animation. All of these take `page` to read another page without switching. screenshot_region zooms into shapes or an area (with `time`); shapes_at_point lists what is drawn at a spot, top first, to find what covers something. Mind layer order: draw backgrounds and panels before the objects that sit or move on them, and if a panel is added later, bring those objects to the front.",
     'Best practices: inspect get_document (includeShapes false) and get_layer_tree first; use the canvas pixel size for coordinates. Group related shapes before adding object timelines, name groups clearly, nest groups for larger objects, and animate the group. A group and its children may each have their own animation timelines.',
     'get_document returns hiddenShapeIds. Use set_layer_visibility to show or hide a page layer without changing opacity or creating a clip. Hiding a group hides its descendants.',
     'Reuse styling: add a palette color or gradient (give it a meaningful `name`; unnamed ones become "Color N" / "Gradient N"), then reuse its `fill` reference (`url(#id)`) across the document. list_colors and get_document show existing entries; update a shared color or gradient instead of changing every shape that uses it.',
@@ -91,9 +92,9 @@ function createServer() {
  * Forwards a tool call to the editor tab and returns its JSON answer as text. Pictures a command
  * attaches as `__images` (e.g. search_media's numbered contact sheet) go back as image content.
  */
-async function run(method, params = {}) {
+async function run(method, params = {}, toolId) {
   try {
-    const result = await bridge.call(method, params);
+    const result = await bridge.call(method, params, { toolId });
     const { __images: images, ...rest } =
       result && typeof result === 'object' && !Array.isArray(result) ? result : { value: result };
     const body = result && typeof result === 'object' && !Array.isArray(result) ? rest : result;
@@ -140,7 +141,11 @@ const handlers = {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ ...status, editor: await bridge.call('status') }, null, 2),
+            text: JSON.stringify(
+              { ...status, editor: await bridge.call('status', {}, { toolId: 'editor_status' }) },
+              null,
+              2,
+            ),
           },
         ],
       };
@@ -150,7 +155,11 @@ const handlers = {
   },
   export_mp4: async () => {
     try {
-      const { filename, mimeType, base64 } = await bridge.call('exportMp4');
+      const { filename, mimeType, base64 } = await bridge.call(
+        'exportMp4',
+        {},
+        { toolId: 'export_mp4' },
+      );
       return {
         content: [
           {
@@ -170,7 +179,9 @@ const handlers = {
   },
   export_subtitles: async (args) => {
     try {
-      const { filename, mimeType, text, cues } = await bridge.call('exportSubtitles', args);
+      const { filename, mimeType, text, cues } = await bridge.call('exportSubtitles', args, {
+        toolId: 'export_subtitles',
+      });
       return {
         content: [
           {
@@ -186,7 +197,9 @@ const handlers = {
   },
   screenshot: async (args) => {
     try {
-      const { png, width, height } = await bridge.call('screenshot', args);
+      const { png, width, height } = await bridge.call('screenshot', args, {
+        toolId: 'screenshot',
+      });
       return {
         content: [
           { type: 'image', data: png, mimeType: 'image/png' },
@@ -197,16 +210,20 @@ const handlers = {
       return { isError: true, content: [{ type: 'text', text: err.message }] };
     }
   },
+  add_supertonic_narration: async ({ voice = 'F1', ...args }) =>
+    run('addAudioClip', { ...args, voice: `supertonic:${voice}` }, 'add_supertonic_narration'),
+  add_kokoro_narration: async ({ voice = 'af_heart', ...args }) =>
+    run('addAudioClip', { ...args, voice: `kokoro:${voice}` }, 'add_kokoro_narration'),
   // batch_edit's schema leaves each operation's args open (repeating every shape schema in it
   // would double its size), so each operation is checked against its own tool's schema here
   batch_edit: async (args) => {
     const problem = checkBatchEdit('mcp', args.operations);
     if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
-    return run('batchEdit', args);
+    return run('batchEdit', args, 'batch_edit');
   },
 };
 for (const { name, method, ...config } of mcpTools) {
-  server.registerTool(name, config, handlers[name] ?? ((args) => run(method, args)));
+  server.registerTool(name, config, handlers[name] ?? ((args) => run(method, args, name)));
 }
 
 await bridge.start();
