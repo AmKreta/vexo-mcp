@@ -116,3 +116,28 @@ test('reports a taken port instead of crashing', async () => {
   second.close();
   first.close();
 });
+
+test("tells the editor each request's timeout, so its own waits end first", async () => {
+  const bridge = await startBridge({ timeoutMs: 300, methodTimeouts: { setActivePage: 900 } });
+  const seen = [];
+  const tab = new WebSocket(`ws://127.0.0.1:${bridge.port}`);
+  tab.on('message', (raw) => {
+    const message = JSON.parse(String(raw));
+    if (message.method) {
+      seen.push([message.method, message.timeoutMs]);
+      tab.send(JSON.stringify({ id: message.id, result: {} }));
+    }
+  });
+  await new Promise((r) => tab.on('open', r));
+  await new Promise((r) => setTimeout(r, 50));
+  await bridge.call('status');
+  await bridge.call('setActivePage', { index: 1 });
+  await bridge.call('status', {}, { timeoutMs: 1234 });
+  assert.deepEqual(seen, [
+    ['status', 300],
+    ['setActivePage', 900],
+    ['status', 1234],
+  ]);
+  tab.close();
+  bridge.close();
+});

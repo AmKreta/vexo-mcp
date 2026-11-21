@@ -196,7 +196,10 @@ export class EditorBridge {
         );
       }, timeoutMs);
       this.pending.set(id, { client, resolve, reject, timer });
-      client.socket.send(JSON.stringify({ id, method, params, ...(toolId ? { toolId } : {}) }));
+      // the editor sizes its own waits (pages, documents loading) to finish within this
+      client.socket.send(
+        JSON.stringify({ id, method, params, timeoutMs, ...(toolId ? { toolId } : {}) }),
+      );
     });
   }
 
