@@ -20,12 +20,14 @@ test('registers only the core plus skill wrappers and validates dynamic calls', 
     await client.connect(transport);
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
-    assert.equal(tools.length, 11);
-    assert.equal(Buffer.byteLength(JSON.stringify(tools)), 19395);
+    assert.equal(tools.length, 12);
+    // 19395 before animate_along_path joined the core
+    assert.equal(Buffer.byteLength(JSON.stringify(tools)), 24045);
     assert.ok(names.includes('load_skill'));
     assert.ok(names.includes('call_tool'));
     assert.ok(names.includes('batch_edit'));
     assert.ok(names.includes('animate_shape'));
+    assert.ok(names.includes('animate_along_path'));
     assert.ok(!names.includes('search_media'));
     assert.ok(!names.includes('export_mp4'));
 
