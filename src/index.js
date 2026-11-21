@@ -1,7 +1,18 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { checkBatchEdit, mcpTools } from '@vexo/editor-tools';
+import {
+  checkBatchEdit,
+  coreMcpTools,
+  formatValidationIssues,
+  loadSkill,
+  mcpTools,
+  skillNames,
+  toolSkill,
+  validateToolArgs,
+} from '@vexo/editor-tools';
+import { z } from 'zod';
+import { CORE_INSTRUCTIONS } from '@vexo/editor-tools';
 import { EditorBridge } from './bridge.js';
 import { startHttpServer } from './http.js';
 
@@ -31,50 +42,8 @@ const bridge = new EditorBridge({ port: PORT, host: HOST, allowedOrigins: ALLOWE
 
 const SERVER_INFO = { name: 'svgtool', version: '0.1.0' };
 const SERVER_OPTIONS = {
-  instructions: [
-    'Drives a running React Svg Editor tab: manage documents and pages; draw, style, group and filter shapes; search free images, videos and audio across providers; manage palettes; animate with timelines and clips; preview and export SVG, PNG, JSON or MP4.',
-    'Motion-first workflow for videos, reels, stories, explainers and other animated projects: make an animated project, not a static stack of cards unless the user asks for static. Plan scenes and visual beats, build all layouts, typography, vector elements and empty media frames, then animate shapes and set page transitions with add_timeline, add_cutscene and set_page_transitions. Give scenes a few purposeful motion beats (staggered titles, reveals, scale/parallax moves and clear scene changes), then preview. Do not search for or pick photos, videos or GIFs until composition, motion and transitions are in place. Then search_media and pick_media to fill prepared frames, fit/layer the assets, add matching entrance/exit clips to the media shapes using the planned timing, and preview again. This order overrides media-selection guidance below unless the user requests another order. Do not wait or repeatedly poll for image/video descriptions; continue building. The in-app assistant receives completed descriptions from the frontend. For an MCP client, make at most one later get_media_descriptions call at a natural milestone if the result is still needed, then use it to revise a crop, replace a mismatch or refine the scene.',
-    'The editor must be open in a browser (npm run dev:frontend, then http://localhost:3000); call editor_status if a tool says no editor is connected.',
-    'Before generated narration, call get_tool_status for the chosen provider tool ID (add_supertonic_narration or add_kokoro_narration). Proceed only if the latest browser report says active and presentInBrowser are true and runtime.modelReady or modelInstalled is true; inspect updateAvailable too. If no recent report exists, ask the user to open the editor tab. If disabled or missing, explain how to enable or load it. Use add_supertonic_narration or add_kokoro_narration to select the provider explicitly. Supertonic accepts inline expression tags such as <sigh> and <angry>; place them in narration text and use natural punctuation to guide pacing. See the Supertonic tool description for the full tag list and known consistency limits. Kokoro’s current browser phonemizer rejects Hindi, so use Supertonic for Hindi narration. Use get_audio for current provider voices and settings.',
-    'Reuse before you draw: before building more than one scene, make a sprite sheet (create_sprite_sheet, draw it with set_editor view "spritesheet") for every recurring character or prop and place it in each scene with place_sprite; give it controls (set_sprite_controls binds any property of shapes inside it, such as a fill color, text, visibility, rotation or size; list_sprite_properties shows them) for per-scene variations instead of redrawing. For repeated geometry (halftone dots, fences, stars, tiles, crowds of the same shape) draw ONE shape and give it an array modifier (properties.modifiers) or use a pattern, never dozens of copies. Run get_reuse_summary before adding scenes and before exporting to catch missed reuse.',
-    'Use batch_edit to build a complete object per call, inspect after each meaningful pass, then refine in batches. Batch references ($name) allow grouping and editing new shapes without waiting for IDs.',
-    'Patterns: create_pattern makes a repeating tile; open it with set_editor(view: "pattern", patternId), draw the tile with the normal tools, then set any shape\'s style.fill or style.stroke to its `fill` reference (url(#id)) from list_patterns. update_pattern changes size, scale, rotation or background.',
-    'Use list_sprites, create_sprite_sheet, add_sprite_page and set_editor for project-wide vector sprites. Draw each animation using the normal tools; place_sprite adds an instance plus a timed clip. Instances expose controls; sprites may nest but cannot include themselves.',
-    'Project Filesystem: list_project_files shows file IDs and which files support text editing. Create, read and edit with create_project_file, read_project_file and update_project_file. Copy with copy_project_file and move with update_project_file(folder). Use an empty folder string for the root. create_project_folder accepts a nested path or generates a numbered name. These tools access files stored in the open Vexo project.',
-    'Group properties include overlapOperation (add/subtract/union/intersection), containerId and overflow (visible/hidden). Children remain editable. Text supports properties.textBox; stackOrder controls explicit stacking.',
-    'Media: search_media(query, media, provider, filters) searches one provider for images (iconify for icons/logos/flags, wikimedia for maps and diagrams, openverse for CC SVGs, unsplash/pexels/pixabay for photos, nasa for space), audio (freesound for effects, jamendo or openverse-audio for music) or video (pexels-video, pixabay-video, wikimedia-video, nasa-video). list_media_providers lists the providers that are set up and their filters. Results are numbered and come with a contact-sheet picture of the thumbnails: look at it, then use one with pick_media(number), which places an image or video (returning its shapeId) or adds audio to the timeline. An image shape holds a picture, GIF or video, typed from its file; update_media sets a video\'s start/end (page times), trim, rate, loop, mute, volume and fit. Video timing is not animatable and never goes in a clip; animate the shape (opacity, scale, position) for entrances and exits. The page plays at least until its last video ends, and MP4 export includes video sound unless muted. To choose from what the user sees in Insert → Media, call get_media_dialog (same numbers as the badges on screen) and pick_media(number, from: "dialog"). Credit the author when the license asks.',
-    'Media descriptions: get_media_descriptions queues background descriptions for images and short videos and returns immediately. If status is checking-duration, queued or processing, continue the project and do not poll; the frontend sends completed descriptions to the in-app assistant. For an MCP client, make at most one later call if a description is still needed. Use descriptions to adjust or replace an asset if they reveal a mismatch. Long videos need the user to choose Generate metadata for AI from the video context menu.',
-    'Choosing between drawing and media: the user\'s instructions come first. If they say not to use images, video, stock media or clip art (or to draw everything by hand), do not search or place any; if they ask for media only, use media. Otherwise decide by the animation an object needs, not by how detailed it is: (1) If it needs no animation, or only animation a single primitive shape can do as a whole (move, slide in/out, scale, rotate, fade, color or filter changes, follow a motion path, spin, bounce), it can be clip art or an SVG: prefer an existing one over drawing many shapes, especially for detailed objects (scenery, buildings, vehicles, props, maps, flags, logos, icons, decorative illustrations). Search with svg results (openverse extension "svg", wikimedia type "svg", iconify, nounproject, permaclipart, openclipart), place it with pick_media, and animate the placed shape with clips like any other shape. Prefer SVG over raster so it stays sharp. (2) Draw it with vector shapes when its parts must move separately (a character that walks, talks, blinks or waves, limbs and rigs, a door that opens, wheels that turn on a car that also moves, morphs, draw-on and typewriter effects, charts and diagrams that build up piece by piece), or when it is simple anyway (text, basic shapes, arrows, callouts). Recurring animated characters belong in sprite sheets. (3) Use photos for realistic subjects and photo backgrounds, video for real footage (b-roll, backgrounds, demonstrations; set start/end with update_media and mute it under narration), GIFs or stickers for playful accents, and audio for music beds and sound effects (keep music volume low under narration). (4) Look at the contact sheet before choosing and keep one consistent style per scene (do not mix flat icons, photos and detailed illustrations at random); size the result to the layout, set fit, layer it correctly, and check with screenshot. Use media where it adds something, not on every element. (5) If the results don\'t fit (none, wrong subject, wrong style, low quality, or a license you can\'t use), don\'t settle and don\'t draw it yet: search again, first with a better query (simpler or more specific words, synonyms, the object\'s English name, adding "icon", "illustration", "clipart" or "flat"), then with other filters, then with another provider of the same kind (for SVG/clip art try openverse → wikimedia → iconify → nounproject → permaclipart → openclipart; for photos unsplash → pexels → pixabay → openverse; for footage pexels-video → pixabay-video → wikimedia-video → nasa-video; for sound freesound → openverse-audio → wikimedia-audio; for music jamendo → openverse-audio). list_media_providers shows which are set up. Try a few searches (about 3–5) before falling back to drawing it. If a provider is unavailable or still nothing fits, draw it instead. Respect licenses: prefer public-domain/CC0 or commercial-use results, and tell the user which results need credit (author and license from the result).',
-    'Coordinates are canvas pixels with the origin at the top-left; get_document reports the canvas pixel size.',
-    'Use add_shape and update_shape for geometry, text, paint, transforms, CSS filters, modifiers and particles. Use add_svg_filter for outline or inset-shadow effects attached to a shape; palette colors and gradients can be reused as url(#id) fills.',
-    'Illustration polish: shade with a shape set to style.blendMode "multiply" (e.g. a soft purple shape over the dark side) and light with "screen", inside the character\'s group (groups isolate blending, so it never darkens the background); keep shading inside the outline or clip it with the group\'s containerId + overflow hidden. add_svg_filter type "effect" adds creative filters: grain or paper for texture, boil for a hand-drawn line wobble, ripple, glitch, crt, hologram, smoke, dissolve, goo, pixelate, neon for glow, duotone/posterize for print looks, emboss, rgbSplit, inkEdges. Boil, glitch, crt, hologram, smoke and ripple move on their own; any effect control can be animated by changing it with update_svg_filter inside a clip. For anything else, write SVG filter primitives once with create_filter_preset and reuse it.',
-    'Rigging: use add_bone to draw bone segments, connect_bones to join pieces at their nearest free tail/head endpoints, and update_joint to set angle limits, angle or IK. attach_bone_artwork and detach_bone_artwork bind drawn artwork to a bone. The page camera is independent of its canvas; set_camera adjusts the start frame, whether it appears in Layers, and a follow target.',
-    'Camera group: move_into_group with groupId "camera" attaches artwork to the camera so it keeps its place on screen while the camera pans and zooms (HUDs, titles, subtitles). remove_from_camera takes it back out. get_document reports camera.follow and camera.group.',
-    'Mirror: add_shape type "mirror" makes a frame divided into sections (radial wedges or side-by-side columns, default 4). Draw artwork inside its first section, then move_into_group it into the mirror; the other sections reflect it live. Change sections, mode or size with update_shape properties.mirror. Guides show only while editing.',
-    'Motion path: add_shape type "motionPath" places an empty drop box. move_into_group an outline into it first (a line, pen path, rectangle…; it becomes the path), then the shape that should travel. Or convert_to_motion_path an existing outline. Inside a clip, update_shape properties.motionPath.progress from 0 to 100 moves the shape from start to end; rotate turns it to face its direction; showPath false hides the path. release_from_modifier takes the path or shape back out.',
-    'Morph: add_shape type "morph", then move_into_group ordered vector targets. Their transform origins align to the first target. Animate properties.morph.activeShapeId on the modifier in successive clips with animate_shape. release_from_modifier detaches individual targets.',
-    'Text animation presets: list_text_animation_presets gives IDs for add_text_animation on editable multiline text. Enter and Exit reuse their clips; on-screen effects each add a clip. Pass start and end in scene-local seconds for exact placement. update_text_animation changes a clip preset within its phase; update_cutscene retimes it and delete_cutscene removes it.',
-    'Code, HTML, Markdown, MathML and diagrams: add_shape type "richContent" with properties.content {kind: "code" (with language, e.g. "python"), "html" (with css, scoped to the box), "markdown", "mathml" (<math>…</math>) or "mermaid" (diagram source), source} draws a box (x, y = top-left, sized per kind). Use it for code snippets, formulas, flowcharts and formatted text blocks instead of drawing them shape by shape. Content is sanitized: no scripts, iframes, forms or outside URLs (images only as data: URLs). It animates like a rectangle (x, y, width, height, opacity, transforms). Code that changes step by step (a refactor, an algorithm improving): create_code_file with named versions (v1-naive, v2-memo…), show it with properties.content.fileRef {fileId, versionId}, then inside a clip update_shape content.fileRef.versionId to the next version; the box animates the change with content.transition.preset (gitDiff default for code: red lines collapse, green lines grow; morph "clean replace", the Markdown default; typewriter; highlight; crossfade; cut) and its options (order, stagger, keepDiffColors, animateHighlight). Use import_project_code_file to bring project text into the Code Editor. Supply codeFileId to add a version to a specific code file. For direct text, use create_code_file and add_code_version. Markdown animates whole blocks; HTML, Mermaid and MathML cross-fade. Versions with the same text but different highlight/focusLine step through one listing. get_shapes contentInfo tells which file and version a box shows; get_timeline lists version changes as content.fileRef.versionId (v1 → v2).',
-    'Text effects: add_shape type "typewriter" or "bend" places an empty drop box that takes only text shapes (move_into_group). Typewriter: set properties.typewriter.progress 0, then 100 inside a clip (linear ease) to type the text on; unit char|word, order together|sequence, cursor bar|block|underscore|none. Bend: properties.bend.amount −100…100 curves the text along an arc (positive arches up, 100 = half circle) and offset 0…100 slides it along; both animate in clips.',
-    'Function graphs: add_shape type "graph" draws a math graph y = f(x) with axes, ticks, grid and axis names (x, y = top-left, 480×320). Set properties.graph.expression (right side of y = f(x), e.g. "a*sin(b*x)", "x^2", "e^(-x^2)", "tan x"; letters other than x, pi, e, tau are variables in graph.params, default 1) or graph.functions for several curves, and the window xMin/xMax/yMin/yMax (piTicks true labels x in multiples of π). Animate inside clips with update_shape: graph.params.<name>, graph.drawProgress 0 → 1 (draws the curve on), graph.tracer {show: true, x} then a new x (a point slides along the curve with a live (x, y) readout), or the window to pan/zoom. Expressions, curves and the other settings that do not tween (toggles, axis names, tickStep, piTicks, autoY, background, fontFamily, tracer.show) are document settings: changing one inside a clip changes it everywhere and records nothing. get_shapes graphInfo reports each expression\'s validity, the variables and the animatable keys.',
-    'Draw: add_shape type "draw" places an empty drop box; move_into_group shapes with a stroke into it. Set properties.draw.end 0 so they start hidden, then inside a clip set end 100 to draw them on (start 0 → 100 with end 100 erases them). order "sequence" draws one after another; direction and startPoint choose where and which way the pen goes; fill "reveal" fades fills in as each outline finishes. Only strokes are drawn.',
-    'Audio: get_audio lists audio timelines, clips, narration states and voices. add_audio_clip or a provider-specific narration tool starts automatic synthesis; keep building while it runs. Use check_narration_status as a non-blocking scan across pages (and optional global clips); check occasionally at natural milestones, not in a tight polling loop. It reports suggestedNextCheckMs when synthesis is still underway. Only use generate_speech_audio, which waits up to 15 seconds, when exact spoken duration is needed immediately for precise speech-synced timing or a final readiness check. Use one audio timeline per speaker. File clips accept an audio data URL or source URL. set_play_range sets one start and end for the video and audio timelines; audio clips that run longer extend the end. export_subtitles returns SRT or VTT captions made from the narration, timed to the MP4 export. Background music across pages: add_audio_clip with scope "global" (start is seconds on the all-pages sequence; get_audio sequence shows where each page starts); it never lengthens pages. fadeIn / fadeOut (seconds) add fades, and a fade out follows the clip end when its duration changes; dimOnNarration on global music automatically ducks under voiceover; set narration: true for uploaded voiceover clips. analyze_music_beats returns sequence time, normalized intensity (0–1), and pages [{index, time}] with zero-based scene indexes and local timeline times. Use pages[].time for scene clips and sequence time for whole-video cues. The analysis excludes narration. set_helpers with beatIndicators toggles the View → Beat indicators strip.',
-    'Animation: each timeline is a row of clips (the API tool names retain "cutscene"). Shape edits are recorded into the open clip as changes from the previous clip; during it, the object animates from the previous state to the new one.',
-    'Each timeline animates one object; an object can have several (separate animations that play together, layered property by property; add_timeline with newTimeline true adds one). Draw artwork first, use add_timeline with shapeId to create or open its timeline, or omit shapeId for an empty row and assign it later with update_timeline. That assignment is permanent. Groups and sprites count as one object; children may have their own timelines. Deleting a timeline keeps artwork.',
-    'To animate: draw the starting artwork, call add_timeline with shapeId, then add_cutscene and move or restyle that object. There is no implicit Start clip. Use screenshot with `time` to inspect an animation moment.',
-    "Reading: read precisely instead of dumping everything. get_document with includeShapes false gives the overview; get_layer_tree shows structure and draw order (bottom → top); find_shapes locates shapes by regex over name, text or id, or by type, fill, canvas area, parent or animated; get_shapes / get_shape with `fields` read only the properties you need; get_timeline reads one object's animation. All of these take `page` to read another page without switching. screenshot_region zooms into shapes or an area (with `time`); shapes_at_point lists what is drawn at a spot, top first, to find what covers something. Mind layer order: draw backgrounds and panels before the objects that sit or move on them, and if a panel is added later, bring those objects to the front.",
-    'Best practices: inspect get_document (includeShapes false) and get_layer_tree first; use the canvas pixel size for coordinates. Group related shapes before adding object timelines, name groups clearly, nest groups for larger objects, and animate the group. A group and its children may each have their own animation timelines.',
-    'get_document returns hiddenShapeIds. Use set_layer_visibility to show or hide a page layer without changing opacity or creating a clip. Hiding a group hides its descendants.',
-    'Reuse styling: add a palette color or gradient (give it a meaningful `name`; unnamed ones become "Color N" / "Gradient N"), then reuse its `fill` reference (`url(#id)`) across the document. list_colors and get_document show existing entries; update a shared color or gradient instead of changing every shape that uses it.',
-    'Custom transitions: add_curve saves a cubic Bézier curve and returns its `ease` ("cubic-bezier(x1, y1, x2, y2)"); give that as a clip\'s ease. list_curves shows saved curves; update_curve changes every clip using it.',
-    'Repeated geometry: use one source shape with `properties.modifiers` and an array modifier (linear rows, radial rings, or random scatters) instead of drawing copies. `count` is the number of extra copies. Use `delay` for staggered motion.',
-    'Custom filters and particles are React-style TSX components (what the Filter and Particle Editors show): create_filter_preset with `source`, and properties.particles.type "custom" with a `component` (see the schemas for the props and helpers). They run in a sandbox. Custom particles can also use a `script` of expressions (x, y, and optionally opacity, size, rotate, color, params) for motion the presets lack: orbits, spirals, vortices, swarms, particles tracing a shape. list_particle_presets shows scripted examples; create_particle_preset saves one for reuse.',
-    'Effects: use `properties.particles` for bursts, falling confetti or snow, rising embers, and drifting sparkles instead of drawing many particles by hand. Set `hideSource` when the emitter shape should not show.',
-    'Animation cycles: animate one complete motion in a cutscene, then set `repeat` and `loop` on it. Use `alternate` to reverse each repeat, `continue` to accumulate movement or rotation, and `repeatDelay` for a pause. Repeats end at the next cutscene or playback-range end.',
-    'Presets: call search_presets before building a title, layout or effect. Search the current gallery by function or motion, e.g. "three step sequence", "crossing trends", "split text", or "six photo dice". If search broadens, check that the match fits. Use a returned ID in insert_preset and set its named inputs. Photo Effects has Photo 1 through Photo 6; supply project-file references, URLs or data URLs. update_sprite_instance edits inputs, trim_sprite_clip retimes the clip, and export_preset packages a reusable sprite. Animate an existing text shape with list_text_animation_presets and add_text_animation.',
-    'Layout and timing without guesswork: align_shapes lines shapes up by their rendered boxes (horizontal left|center|right, vertical top|middle|bottom, to "canvas" with margin, "selection" or a shape id, together to move a row as one block); never estimate text widths. Give text textAnchor "middle" (or "end") when its words may change. animate_shape sets a shape\'s start pose (from) and all its keyframe clips at absolute times in one validated call. analyze_music_beats returns interval and a per-page grid of beat times and accents: use them as clip starts. Images take rx for rounded or capsule photo cards (with update_media fit "cover").',
-    'Use a new page for a distinct scene or topic, and cutscenes for changes within a scene. Pages play one after another, like slides. Preview with play_animation or screenshot, then save_document to persist edits.',
-  ].join('\n'),
+  instructions: `${CORE_INSTRUCTIONS}
+MCP: the editor must be open in a browser; call editor_status if disconnected. Call get_media_descriptions once near final sign-off and again only if results were pending.`,
 };
 
 // Tools are recorded here and registered on each McpServer that createServer() makes: stdio
@@ -84,8 +53,13 @@ const server = { registerTool: (...registration) => toolRegistrations.push(regis
 
 function createServer() {
   const mcp = new McpServer(SERVER_INFO, SERVER_OPTIONS);
-  for (const registration of toolRegistrations) {
-    mcp.registerTool(...registration);
+  const state = { loadedSkills: new Set() };
+  for (const [name, config, handler] of toolRegistrations) {
+    const isolatedHandler =
+      name === 'load_skill' || name === 'call_tool'
+        ? (args) => handler(args, state)
+        : handler;
+    mcp.registerTool(name, config, isolatedHandler);
   }
   return mcp;
 }
@@ -223,10 +197,79 @@ const handlers = {
     if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
     return run('batchEdit', args, 'batch_edit');
   },
+  load_skill: async ({ name }, state) => {
+    if (state.loadedSkills.has(name)) {
+      return { content: [{ type: 'text', text: `Skill ${name} is already loaded.` }] };
+    }
+    const skill = loadSkill(name, 'mcp');
+    if (!skill) return { isError: true, content: [{ type: 'text', text: `Unknown skill: ${name}.` }] };
+    state.loadedSkills.add(name);
+    return { content: [{ type: 'text', text: JSON.stringify(skill) }] };
+  },
+  call_tool: async ({ name, args = {} }, state) => {
+    const parsed = validateToolArgs(name, 'mcp', args);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}` }],
+      };
+    }
+    if (name === 'batch_edit') {
+      const problem = checkBatchEdit('mcp', parsed.data.operations);
+      if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
+    }
+    const def = mcpTools.find((candidate) => candidate.name === name);
+    if (!def) return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}.` }] };
+    const result = await (handlers[name] ?? ((input) => run(def.method, input, name)))(parsed.data);
+    const skill = toolSkill(name);
+    if (skill && !state.loadedSkills.has(skill)) {
+      result.content = [
+        { type: 'text', text: `Tool ${name} result. Skill ${skill} is not loaded; call load_skill with name "${skill}" for its guidance.` },
+        ...(result.content ?? []),
+      ];
+    } else if (result.content) {
+      result.content = [{ type: 'text', text: `Tool ${name} result.` }, ...result.content];
+    }
+    return result;
+  },
 };
-for (const { name, method, ...config } of mcpTools) {
-  server.registerTool(name, config, handlers[name] ?? ((args) => run(method, args, name)));
+for (const { name, method, ...config } of coreMcpTools) {
+  server.registerTool(name, config, async (args) => {
+    const parsed = validateToolArgs(name, 'mcp', args);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}` }],
+      };
+    }
+    if (name === 'batch_edit') {
+      const problem = checkBatchEdit('mcp', parsed.data.operations);
+      if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
+    }
+    return (handlers[name] ?? ((input) => run(method, input, name)))(parsed.data);
+  });
 }
+server.registerTool(
+  'load_skill',
+  {
+    title: 'Load editor skill',
+    description: 'Load one area\'s guidance and member schemas.',
+    inputSchema: { name: z.enum(skillNames) },
+  },
+  handlers.load_skill,
+);
+server.registerTool(
+  'call_tool',
+  {
+    title: 'Call editor tool',
+    description: 'Run a validated editor tool by name with its arguments.',
+    inputSchema: {
+      name: z.enum(mcpTools.map((tool) => tool.name)),
+      args: z.record(z.string(), z.unknown()).default({}),
+    },
+  },
+  handlers.call_tool,
+);
 
 await bridge.start();
 
