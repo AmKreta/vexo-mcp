@@ -69,7 +69,7 @@ function createServer() {
 async function run(method, params = {}, toolId) {
   try {
     const result = await bridge.call(method, params, { toolId });
-    const { __images: images, ...rest } =
+    const { __images: images, __file: file, ...rest } =
       result && typeof result === 'object' && !Array.isArray(result) ? result : { value: result };
     const body = result && typeof result === 'object' && !Array.isArray(result) ? rest : result;
     return {
@@ -77,6 +77,16 @@ async function run(method, params = {}, toolId) {
       content: [
         ...(Array.isArray(images)
           ? images.map(({ data, mimeType }) => ({ type: 'image', data, mimeType }))
+          : []),
+        ...(file
+          ? [{
+              type: 'resource',
+              resource: {
+                uri: `vexo-media://${encodeURIComponent(file.id)}/${encodeURIComponent(file.name)}`,
+                mimeType: file.mimeType,
+                blob: file.data,
+              },
+            }]
           : []),
         { type: 'text', text: JSON.stringify(body, null, 2) },
       ],

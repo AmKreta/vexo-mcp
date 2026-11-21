@@ -26,6 +26,8 @@ export const SLOW_METHOD_TIMEOUTS = {
   searchMedia: 60000,
   pickMedia: 60000,
   mediaDialogSearch: 60000,
+  getMediaFile: 60000,
+  uploadMediaFile: 60000,
   batchEdit: 60000,
 };
 
