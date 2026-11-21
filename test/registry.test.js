@@ -20,6 +20,8 @@ test('registers only the core plus skill wrappers and validates dynamic calls', 
     await client.connect(transport);
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
+    assert.equal(tools.length, 11);
+    assert.equal(Buffer.byteLength(JSON.stringify(tools)), 19395);
     assert.ok(names.includes('load_skill'));
     assert.ok(names.includes('call_tool'));
     assert.ok(names.includes('batch_edit'));
@@ -38,6 +40,9 @@ test('registers only the core plus skill wrappers and validates dynamic calls', 
     });
     assert.equal(invalidDynamic.isError, true);
     assert.match(invalidDynamic.content[0].text, /properties\.mirror\.segments.*maximum is 24/);
+    assert.match(invalidDynamic.content[1].text, /Tool schema: add_shape/);
+    assert.match(invalidDynamic.content[1].text, /Draws a shape on the current page/);
+    assert.match(invalidDynamic.content[1].text, /Shape-specific properties; load the drawing skill/);
 
     const invalidCore = await client.callTool({
       name: 'add_shape',
@@ -45,6 +50,48 @@ test('registers only the core plus skill wrappers and validates dynamic calls', 
     });
     assert.equal(invalidCore.isError, true);
     assert.match(invalidCore.content[0].text, /properties\.mirror\.segments.*maximum is 24/);
+    assert.match(invalidCore.content[1].text, /Tool schema: add_shape/);
+
+    const invalidBatch = await client.callTool({
+      name: 'call_tool',
+      arguments: {
+        name: 'batch_edit',
+        args: {
+          operations: [
+            { tool: 'add_shape', args: { type: 'mirror', properties: { mirror: { segments: 99 } } } },
+          ],
+        },
+      },
+    });
+    assert.equal(invalidBatch.isError, true);
+    assert.match(invalidBatch.content[0].text, /operation 0 \(add_shape\)/);
+    assert.match(invalidBatch.content[1].text, /Tool schema: add_shape/);
+
+    const invalidCoreBatch = await client.callTool({
+      name: 'batch_edit',
+      arguments: {
+        operations: [
+          { tool: 'add_shape', args: { type: 'mirror', properties: { mirror: { segments: 99 } } } },
+        ],
+      },
+    });
+    assert.equal(invalidCoreBatch.isError, true);
+    assert.match(invalidCoreBatch.content[1].text, /Tool schema: add_shape/);
+
+    const unknown = await client.callTool({
+      name: 'call_tool',
+      arguments: { name: 'draw_frog', args: {} },
+    });
+    assert.equal(unknown.isError, true);
+    assert.match(unknown.content[0].text, /Unknown tool "draw_frog"/);
+    assert.match(unknown.content[0].text, /search_media \(skill: media\)/);
+    assert.match(unknown.content[0].text, /get_document \(core \(always loaded\)\)/);
+
+    const valid = await client.callTool({
+      name: 'call_tool',
+      arguments: { name: 'get_document', args: {} },
+    });
+    assert.doesNotMatch(valid.content.map((item) => item.text || '').join('\n'), /Tool schema:/);
   } finally {
     await client.close();
   }

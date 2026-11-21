@@ -8,6 +8,7 @@ import {
   loadSkill,
   mcpTools,
   skillNames,
+  toolSchema,
   toolSkill,
   validateToolArgs,
 } from '@vexo/editor-tools';
@@ -94,6 +95,54 @@ async function run(method, params = {}, toolId) {
   } catch (err) {
     return { isError: true, content: [{ type: 'text', text: err.message }] };
   }
+}
+
+function schemaHelp(name) {
+  const schema = toolSchema(name, 'mcp');
+  return `Tool schema: ${schema.name}\nDescription: ${schema.description}\nInput schema:\n${JSON.stringify(schema.inputSchema, null, 2)}`;
+}
+
+function invalidArgsResult(name, issues) {
+  return {
+    isError: true,
+    content: [
+      { type: 'text', text: `Invalid ${name} arguments: ${formatValidationIssues(issues)}` },
+      { type: 'text', text: schemaHelp(name) },
+    ],
+  };
+}
+
+function unknownToolResult(name) {
+  const coreNames = new Set(coreMcpTools.map((tool) => tool.name));
+  const available = mcpTools.map((tool) => {
+    const memberships = [];
+    const skill = toolSkill(tool.name);
+    if (skill) memberships.push(`skill: ${skill}`);
+    if (coreNames.has(tool.name)) memberships.push('core (always loaded)');
+    return `${tool.name} (${memberships.join(', ') || 'unassigned'})`;
+  });
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text: `Unknown tool "${name}". Valid tools and their skills: ${available.join(', ')}.`,
+      },
+    ],
+  };
+}
+
+function batchEditErrorResult(problem) {
+  const failedTools = [
+    ...new Set([...problem.matchAll(/operation \d+ \(([a-z0-9_]+)\):/g)].map((match) => match[1])),
+  ];
+  return {
+    isError: true,
+    content: [
+      { type: 'text', text: problem },
+      ...failedTools.map((name) => ({ type: 'text', text: schemaHelp(name) })),
+    ],
+  };
 }
 
 // Each tool is defined once in @vexo/editor-tools, for both this server and the in-app assistant.
@@ -202,7 +251,7 @@ const handlers = {
   // would double its size), so each operation is checked against its own tool's schema here
   batch_edit: async (args) => {
     const problem = checkBatchEdit('mcp', args.operations);
-    if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
+    if (problem) return batchEditErrorResult(problem);
     return run('batchEdit', args, 'batch_edit');
   },
   load_skill: async ({ name }, state) => {
@@ -216,24 +265,15 @@ const handlers = {
     return { content: [{ type: 'text', text: JSON.stringify(skill) }] };
   },
   call_tool: async ({ name, args = {} }, state) => {
+    if (!mcpTools.some((candidate) => candidate.name === name)) return unknownToolResult(name);
     const parsed = validateToolArgs(name, 'mcp', args);
-    if (!parsed.success) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}`,
-          },
-        ],
-      };
-    }
+    if (!parsed.success) return invalidArgsResult(name, parsed.error.issues);
     if (name === 'batch_edit') {
       const problem = checkBatchEdit('mcp', parsed.data.operations);
-      if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
+      if (problem) return batchEditErrorResult(problem);
     }
     const def = mcpTools.find((candidate) => candidate.name === name);
-    if (!def) return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}.` }] };
+    if (!def) return unknownToolResult(name);
     const result = await (handlers[name] ?? ((input) => run(def.method, input, name)))(parsed.data);
     const skill = toolSkill(name);
     if (skill && !state.loadedSkills.has(skill)) {
@@ -253,20 +293,10 @@ const handlers = {
 for (const { name, method, ...config } of coreMcpTools) {
   server.registerTool(name, config, async (args) => {
     const parsed = validateToolArgs(name, 'mcp', args);
-    if (!parsed.success) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}`,
-          },
-        ],
-      };
-    }
+    if (!parsed.success) return invalidArgsResult(name, parsed.error.issues);
     if (name === 'batch_edit') {
       const problem = checkBatchEdit('mcp', parsed.data.operations);
-      if (problem) return { isError: true, content: [{ type: 'text', text: problem }] };
+      if (problem) return batchEditErrorResult(problem);
     }
     return (handlers[name] ?? ((input) => run(method, input, name)))(parsed.data);
   });
@@ -286,7 +316,9 @@ server.registerTool(
     title: 'Call editor tool',
     description: 'Run a validated editor tool by name with its arguments.',
     inputSchema: {
-      name: z.enum(mcpTools.map((tool) => tool.name)),
+      // Keep the published enum, but allow unknown names through so the handler can return the
+      // useful on-demand tool/skill index instead of the SDK's generic schema-validation error.
+      name: z.string().meta({ enum: mcpTools.map((tool) => tool.name) }),
       args: z.record(z.string(), z.unknown()).default({}),
     },
   },
