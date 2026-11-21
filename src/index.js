@@ -43,7 +43,7 @@ const bridge = new EditorBridge({ port: PORT, host: HOST, allowedOrigins: ALLOWE
 const SERVER_INFO = { name: 'svgtool', version: '0.1.0' };
 const SERVER_OPTIONS = {
   instructions: `${CORE_INSTRUCTIONS}
-MCP: the editor must be open in a browser; call editor_status if disconnected. Call get_media_descriptions once near final sign-off and again only if results were pending.`,
+MCP: the editor must be open in a browser; call editor_status if disconnected. Do not request media descriptions unless the user asks for verification or a closer media match.`,
 };
 
 // Tools are recorded here and registered on each McpServer that createServer() makes: stdio
@@ -56,9 +56,7 @@ function createServer() {
   const state = { loadedSkills: new Set() };
   for (const [name, config, handler] of toolRegistrations) {
     const isolatedHandler =
-      name === 'load_skill' || name === 'call_tool'
-        ? (args) => handler(args, state)
-        : handler;
+      name === 'load_skill' || name === 'call_tool' ? (args) => handler(args, state) : handler;
     mcp.registerTool(name, config, isolatedHandler);
   }
   return mcp;
@@ -202,7 +200,8 @@ const handlers = {
       return { content: [{ type: 'text', text: `Skill ${name} is already loaded.` }] };
     }
     const skill = loadSkill(name, 'mcp');
-    if (!skill) return { isError: true, content: [{ type: 'text', text: `Unknown skill: ${name}.` }] };
+    if (!skill)
+      return { isError: true, content: [{ type: 'text', text: `Unknown skill: ${name}.` }] };
     state.loadedSkills.add(name);
     return { content: [{ type: 'text', text: JSON.stringify(skill) }] };
   },
@@ -211,7 +210,12 @@ const handlers = {
     if (!parsed.success) {
       return {
         isError: true,
-        content: [{ type: 'text', text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}` }],
+        content: [
+          {
+            type: 'text',
+            text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}`,
+          },
+        ],
       };
     }
     if (name === 'batch_edit') {
@@ -224,7 +228,10 @@ const handlers = {
     const skill = toolSkill(name);
     if (skill && !state.loadedSkills.has(skill)) {
       result.content = [
-        { type: 'text', text: `Tool ${name} result. Skill ${skill} is not loaded; call load_skill with name "${skill}" for its guidance.` },
+        {
+          type: 'text',
+          text: `Tool ${name} result. Skill ${skill} is not loaded; call load_skill with name "${skill}" for its guidance.`,
+        },
         ...(result.content ?? []),
       ];
     } else if (result.content) {
@@ -239,7 +246,12 @@ for (const { name, method, ...config } of coreMcpTools) {
     if (!parsed.success) {
       return {
         isError: true,
-        content: [{ type: 'text', text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}` }],
+        content: [
+          {
+            type: 'text',
+            text: `Invalid ${name} arguments: ${formatValidationIssues(parsed.error.issues)}`,
+          },
+        ],
       };
     }
     if (name === 'batch_edit') {
@@ -253,7 +265,7 @@ server.registerTool(
   'load_skill',
   {
     title: 'Load editor skill',
-    description: 'Load one area\'s guidance and member schemas.',
+    description: "Load one area's guidance and member schemas.",
     inputSchema: { name: z.enum(skillNames) },
   },
   handlers.load_skill,
