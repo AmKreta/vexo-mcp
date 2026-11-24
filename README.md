@@ -94,8 +94,9 @@ Each `server.registerTool(...)` call automatically exposes its name, title, desc
 | Particles           | `list_particle_presets`, `create_particle_preset`, `update_particle_preset`, `delete_particle_preset` — particle setups, including `type: "custom"` particles drawn by a TSX `component` (or an expression `script`). Shapes made from a preset follow its edits.                                                                                                                                                                                                                                                                                                                                                                                     |
 | Canvas and pages    | `set_canvas`, `add_page`, `remove_page`, `set_active_page` — set the background and dimensions, and organize scenes as pages.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Text animation      | `list_text_animation_presets`, `add_text_animation`, `update_text_animation` — word effects with editable clips. |
-| Timelines and clips | `get_timelines`, `add_timeline`, `rename_timeline`, `delete_timeline`, `update_timeline`, `add_cutscene`, `open_cutscene`, `update_cutscene`, `delete_cutscene`, `set_transition` — create or open one timeline per shapeId (including groups and sprites), or add an empty row and choose its shape later. The shape binding is permanent. Then edit clips, timing, easing, repeats, camera views and enter/exit effects. Artwork remains on the page when its timeline is removed.                                                                                                                                                                  |
-| Project assets      | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `list_sprite_properties`, `set_sprite_controls`, `set_editor`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`, `get_reuse_summary`, `list_project_files`, `create_project_folder`, `rename_project_folder`, `create_project_file`, `read_project_file`, `copy_project_file`, `add_project_file`, `update_project_file`, `place_project_file`, `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern` — reusable sprites and patterns, and the project Filesystem (folders, files, sprites, filter and particle presets). `set_editor` opens the Scene, Sprite Sheet, Pattern, Filter or Particle Editor. |
+| Timelines and clips | `get_timelines`, `add_timeline`, `rename_timeline`, `delete_timeline`, `update_timeline`, `add_cutscene`, `open_cutscene`, `update_cutscene`, `delete_cutscene`, `set_transition` — create or open one timeline per shapeId (including groups, preset instances and spritesheet instances), or add an empty row and choose its shape later. The shape binding is permanent. Then edit clips, timing, easing, repeats, camera views and enter/exit effects. Artwork remains on the page when its timeline is removed.                                                                                                                                                                  |
+| Project assets      | `list_project_presets`, `create_preset`, `update_preset`, `add_preset_page`, `update_preset_page`, `list_preset_properties`, `set_preset_controls`, `set_editor`, `place_preset`, `update_preset_instance`, `trim_preset_clip`, `get_reuse_summary`, `list_project_files`, `create_project_folder`, `rename_project_folder`, `create_project_file`, `read_project_file`, `copy_project_file`, `add_project_file`, `update_project_file`, `place_project_file`, `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern` — reusable presets (drawn components with animation pages and controls; library presets from `insert_preset` install into these too) and patterns, and the project Filesystem (folders, files, presets, spritesheets, filter and particle presets). `set_editor` opens the Scene, Preset, Spritesheet, Pattern, Filter or Particle Editor. |
+| Spritesheets        | `list_spritesheets`, `create_spritesheet`, `update_spritesheet`, `delete_spritesheet`, `set_spritesheet_animation`, `delete_spritesheet_animation`, `place_spritesheet`, `update_spritesheet_instance` — raster spritesheet images cut into a grid of frames, with frame-by-frame animations played by scene instances. `set_editor` view `spritesheet` opens the Spritesheet Editor. |
 | Playback and guides | `set_loop`, `set_play_range`, `play_animation`, `stop_animation`, `set_helpers` — control preview and show or hide editor guides, including `set_helpers({beatIndicators: true})` for the beat strip.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Output              | `export_svg`, `export_animated_svg`, `export_mp4`, `screenshot` — export static or animated work, or preview a PNG (pass `time` to inspect an animation moment).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -146,17 +147,18 @@ The websocket and the HTTP endpoint listen on 127.0.0.1 (in Docker they listen i
 npm test
 ```
 
-## Sprite and batch workflows
+## Preset, spritesheet and batch workflows
 
-The bridge now supports the scene editor and sprite sheet editor. `get_document` identifies the
-active workspace and lists project sprites, animation pages, controls, folders and file metadata.
-Project JSON export includes the whole project, even while a sprite page is open.
+The bridge supports the Scene Editor, Preset Editor and Spritesheet Editor. `get_document`
+identifies the active workspace and lists project presets, animation pages, controls, folders and
+file metadata. Project JSON export includes the whole project, even while a preset page is open.
 
 | Area                   | New tools                                                                                                                                |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Batching               | `batch_edit` — 1–50 ordered add/update/group/delete operations in one bridge call.                                                       |
-| Sprites                | `list_sprites`, `create_sprite_sheet`, `update_sprite_sheet`, `add_sprite_page`, `update_sprite_page`, `set_editor`.                     |
-| Controls and placement | `list_sprite_properties`, `set_sprite_controls`, `place_sprite`, `update_sprite_instance`, `trim_sprite_clip`.                           |
+| Presets                | `list_project_presets`, `create_preset`, `update_preset`, `add_preset_page`, `update_preset_page`, `set_editor`.                         |
+| Controls and placement | `list_preset_properties`, `set_preset_controls`, `place_preset`, `update_preset_instance`, `trim_preset_clip`.                           |
+| Spritesheets           | `list_spritesheets`, `create_spritesheet`, `update_spritesheet`, `delete_spritesheet`, `set_spritesheet_animation`, `delete_spritesheet_animation`, `place_spritesheet`, `update_spritesheet_instance`. |
 | Filesystem             | `create_project_folder`, `rename_project_folder`, `list_project_files`, `create_project_file`, `read_project_file`, `copy_project_file`, `add_project_file`, `update_project_file`, `place_project_file`. |
 | Patterns               | `list_patterns`, `create_pattern`, `update_pattern`, `delete_pattern`, `set_editor` with `view: "pattern"`.                              |
 | Stacking               | `bring_to_front` — permanent, or temporary until another shape is selected.                                                              |
@@ -265,26 +267,53 @@ page, and their output is sanitized; only `react` can be imported.
 Strokes on lines, polylines, polygons and paths can taper to a point: set
 `style.strokeTaper: { start, end }` (each 0–0.5 of the length).
 
-### Draw a reusable sprite
+### Draw a reusable preset
 
-1. `create_sprite_sheet` with a name, frame width/height, and optional folder.
-2. `set_editor` with `view: "spritesheet"`, the sheet ID and animation page ID.
-3. Draw with `batch_edit`, then animate with normal timeline/cutscene tools. Use `add_sprite_page`
-   for another animation; `update_sprite_page` renames one.
-4. `set_sprite_controls` exposes properties of the sprite's shapes as controls: each control has
-   `bindings` `[{shapeId, property}]`, and `list_sprite_properties` shows what each shape can expose
+1. `create_preset` with a name, frame width/height, and optional folder.
+2. `set_editor` with `view: "preset"`, the sheet ID (`sheetId`) and animation page ID (`pageId`).
+3. Draw with `batch_edit`, then animate with normal timeline/cutscene tools. Use `add_preset_page`
+   for another animation; `update_preset_page` renames one.
+4. `set_preset_controls` exposes properties of the preset's shapes as controls: each control has
+   `bindings` `[{shapeId, property}]`, and `list_preset_properties` shows what each shape can expose
    (fill/stroke color, opacity, position, rotation, scale, size, text, visibility, draw/typewriter
-   progress, a nested sprite's controls). One control can drive several shapes. This replaces the
-   page's controls; retain IDs to preserve instance values. `update_sprite_instance` inside an open
+   progress, a nested preset's controls). One control can drive several shapes. This replaces the
+   page's controls; retain IDs to preserve instance values. `update_preset_instance` inside an open
    clip animates a control value.
-5. Switch to `view: "scene"` and call `place_sprite`. It references the source artwork and creates
-   an animation clip automatically. Sprites can also be placed in other sprites; direct and indirect
+5. Switch to `view: "scene"` and call `place_preset`. It references the source artwork and creates
+   an animation clip automatically. Presets can also be placed in other presets; direct and indirect
    self-inclusion are rejected.
-6. `update_sprite_instance` changes only that instance's control values. To trim playback, open
-   its owning clip, then use `trim_sprite_clip`; the clip duration follows the source range.
+6. `update_preset_instance` changes only that instance's control values. To trim playback, open
+   its owning clip, then use `trim_preset_clip`; the clip duration follows the source range.
 
-`list_sprites` returns metadata by default. Use `includeDocuments: true` only when full sprite
-animation documents are needed. Frame dimensions apply to every animation page in a sheet.
+`list_project_presets` returns metadata by default. Use `includeDocuments: true` only when full
+preset animation documents are needed. Frame dimensions apply to every animation page in a preset.
+Library presets placed with `insert_preset` are installed as project presets, so the same tools
+edit them. A placed instance is stored on the shape as `presetInstance` (formerly
+`spriteInstance`); older projects migrate automatically when opened.
+
+### Animate a spritesheet image
+
+A spritesheet is a raster image (PNG, GIF, WebP, JPG or SVG) holding a grid of frames, as used in
+games. It is separate from presets, which are drawn vector components.
+
+1. `create_spritesheet` with `name` and `image` (a URL, a data URL, or
+   `"project-file:<id or name>"`). Optional `frameWidth`, `frameHeight`, `offsetX`, `offsetY`,
+   `spacingX`, `spacingY`, `pixelated` (hard edges for pixel art) and `folder`. Without a cell size
+   it is detected from the transparent or plain gaps between frames; the first row of cells becomes
+   the first animation. `update_spritesheet` `{spritesheetId, ...}` changes the same fields, and
+   `delete_spritesheet` `{spritesheetId}` removes one.
+2. `set_spritesheet_animation` `{spritesheetId, animationId?, name?, fps?, loop?, frames?}` creates
+   an animation (omit `animationId`) or replaces one. Each frame is a grid cell `{column, row}` or a
+   crop `{x, y, width, height}`, with an optional `duration` in seconds. `delete_spritesheet_animation`
+   `{spritesheetId, animationId}` removes one. `list_spritesheets` shows sheets, grids and animations;
+   `includeFrames: true` adds each frame's crop and duration.
+3. `set_editor` with `view: "spritesheet"`, `spritesheetId` and `animationId` shows it to the user.
+4. In a scene, `place_spritesheet` `{spritesheetId, animationId?, x?, y?, width?, height?, speed?,
+   offset?}` adds an instance. `update_spritesheet_instance` `{id, animationId?, speed?, offset?}`
+   switches the animation (by ID or name), the playback speed, or the start delay in seconds; inside
+   an open clip the switch is animated in that clip.
+
+These tools belong to the `reuse` skill.
 
 ### Project files and the Code Editor
 
