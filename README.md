@@ -302,11 +302,13 @@ games. It is separate from presets, which are drawn vector components.
    it is detected from the transparent or plain gaps between frames; the first row of cells becomes
    the first animation. `update_spritesheet` `{spritesheetId, ...}` changes the same fields, and
    `delete_spritesheet` `{spritesheetId}` removes one.
-2. `set_spritesheet_animation` `{spritesheetId, animationId?, name?, fps?, loop?, frames?}` creates
+2. `set_spritesheet_animation` `{spritesheetId, animationId?, name?, fps?, loop?, frames?, layout?}` creates
    an animation (omit `animationId`) or replaces one. Each frame is a grid cell `{column, row}` or a
    crop `{x, y, width, height}`, with an optional `duration` in seconds. `delete_spritesheet_animation`
    `{spritesheetId, animationId}` removes one. `list_spritesheets` shows sheets, grids and animations;
-   `includeFrames: true` adds each frame's crop and duration.
+   `includeFrames: true` adds each frame's crop and duration. Instead of `frames`, pass
+   `layout` `{x, y, width, height, spacingX?, spacingY?, count?, perRow?}`: same-size frames from the
+   first crop, `count` of them (default: as many as fit to the right edge), wrapping after `perRow`.
 3. `set_editor` with `view: "spritesheet"`, `spritesheetId` and `animationId` shows it to the user.
 4. In a scene, `place_spritesheet` `{spritesheetId, animationId?, x?, y?, width?, height?, speed?,
    offset?}` adds an instance. `update_spritesheet_instance` `{id, animationId?, speed?, offset?}`
