@@ -121,9 +121,9 @@ Each `server.registerTool(...)` call automatically exposes its name, title, desc
 - Use `get_audio` to inspect audio before editing. `add_audio_clip` with `text` (and a Kokoro `voice` such as `af_heart`) adds narration; the editor generates its audio automatically (the voice model, about 90 MB, downloads once when the editor opens) and sets the clip to the spoken length. Call `generate_speech_audio` until the clip's `audio` is `ready` before timing animation to it. File clips take an audio URL or data URL. `set_play_range` sets the page's start and end for both the video and audio timelines.
 - `get_document` reports `hiddenShapeIds`. Use `set_layer_visibility` for page-layer visibility rather than changing opacity in a clip.
 - For a repeating motion, animate one cycle in a cutscene, then set `repeat` and `loop` with `update_cutscene`. Use `alternate` for back-and-forth motion, `continue` when movement or rotation should accumulate, and `repeatDelay` for a pause. Repeats stop at the next cutscene or the playback-range end.
-- Make a new page for a distinct scene and use cutscenes for changes within a scene. Preview with `play_animation` or `screenshot`, then call `save_document` to persist the work.
+- Make a new page for a distinct scene and use cutscenes for changes within a scene. Preview with `play_animation` or `screenshot`, and call `save_document` after each finished scene or big change, and before heavy operations such as beat analysis or export.
 
-Changes stay in the tab until `save_document` is called, as in the editor itself. `open_document` and `new_document` replace the open document, and anything unsaved is lost.
+`new_document` takes a `name` and a canvas: `aspectRatio` (`16:9` 1920×1080, `9:16` 1080×1920, `1:1`, `4:3`, `3:4`; default `16:9`) or a custom `resolution: { width, height }` (16–8192 px). It saves the new project once straight away (under `name`, the loaded document's name, or "Untitled <date>"). After that, changes stay in the tab until `save_document` is called, as in the editor itself, so agents are told to save often. `open_document` and `new_document` replace the open document, and anything unsaved is lost.
 
 ## Configuration
 
