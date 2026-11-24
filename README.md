@@ -317,6 +317,33 @@ games. It is separate from presets, which are drawn vector components.
 
 These tools belong to the `reuse` skill.
 
+### 3D (only when the user asks)
+
+Agents keep work flat unless the user asks for 3D, depth or perspective (the core instructions say
+so). When they do:
+
+- **Style** (on `add_shape`, `update_shape`, `animate_shape` clips): `rotateX` / `rotateY` tilt in
+  degrees, `translateZ` moves toward the viewer in px, `perspective` sets the depth strength
+  (default 800; smaller is stronger), and `backfaceVisibility: "hidden"` hides a shape while it's
+  turned away. The first four animate. A 3D shape is drawn in a perspective box, `style.box3d`,
+  fitted automatically and carried along by `translate`.
+- **Paths**: `animate_along_path` takes `path.tilt` (orbit and spiral, −89…89°, tips the circle
+  back so the far side recedes) and `path.z` (depth for any kind as an expression in `u`, 0–1 of
+  the travel, or the kind's own `t`/`theta`/`x`). The depth is stored on the motion path
+  (`motionPath.depth`) and follows the travel's ease, repeats and direction. The result reports its
+  `depth` range.
+- These options are left out of the always-loaded schemas to keep them small; they still pass
+  through to validation, and the drawing and animation skills describe them.
+
+```text
+animate_shape {id: "card", from: {style: {rotateY: 0}}, clips: [{start: 0, end: 1, ease: "power2.inOut", style: {rotateY: 180}}]}
+update_shape {id: "card", style: {backfaceVisibility: "hidden"}}
+animate_along_path {id: "moon", path: {kind: "orbit", center: [960, 540], radius: 220, tilt: 65}, start: 0, end: 4, ease: "none", repeat: "infinite"}
+```
+
+Screenshots (`screenshot`, `screenshot_region`) show 3D as the editor does. SVG exports draw 3D
+flat unless the user keeps it for browsers; MP4, PNG, PDF and Lottie keep it.
+
 ### Project files and the Code Editor
 
 Use `list_project_files` to discover files stored in Vexo. The result includes an `editable` flag
