@@ -7,7 +7,8 @@ import {
   formatValidationIssues,
   loadSkill,
   mcpTools,
-  skillNames,
+  searchSkills,
+  SKILL_NAME_HINT,
   toolSchema,
   toolSkill,
   validateToolArgs,
@@ -70,8 +71,11 @@ function createServer() {
 async function run(method, params = {}, toolId) {
   try {
     const result = await bridge.call(method, params, { toolId });
-    const { __images: images, __file: file, ...rest } =
-      result && typeof result === 'object' && !Array.isArray(result) ? result : { value: result };
+    const {
+      __images: images,
+      __file: file,
+      ...rest
+    } = result && typeof result === 'object' && !Array.isArray(result) ? result : { value: result };
     const body = result && typeof result === 'object' && !Array.isArray(result) ? rest : result;
     return {
       ...(method === 'batchEdit' && result?.ok === false ? { isError: true } : {}),
@@ -80,14 +84,16 @@ async function run(method, params = {}, toolId) {
           ? images.map(({ data, mimeType }) => ({ type: 'image', data, mimeType }))
           : []),
         ...(file
-          ? [{
-              type: 'resource',
-              resource: {
-                uri: `vexo-media://${encodeURIComponent(file.id)}/${encodeURIComponent(file.name)}`,
-                mimeType: file.mimeType,
-                blob: file.data,
+          ? [
+              {
+                type: 'resource',
+                resource: {
+                  uri: `vexo-media://${encodeURIComponent(file.id)}/${encodeURIComponent(file.name)}`,
+                  mimeType: file.mimeType,
+                  blob: file.data,
+                },
               },
-            }]
+            ]
           : []),
         { type: 'text', text: JSON.stringify(body, null, 2) },
       ],
@@ -260,10 +266,21 @@ const handlers = {
     }
     const skill = loadSkill(name, 'mcp');
     if (!skill)
-      return { isError: true, content: [{ type: 'text', text: `Unknown skill: ${name}.` }] };
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: `Unknown skill: ${name}. Give ${SKILL_NAME_HINT}.`,
+          },
+        ],
+      };
     state.loadedSkills.add(name);
     return { content: [{ type: 'text', text: JSON.stringify(skill) }] };
   },
+  search_skills: async ({ query, limit }) => ({
+    content: [{ type: 'text', text: JSON.stringify(searchSkills(query, limit)) }],
+  }),
   call_tool: async ({ name, args = {} }, state) => {
     if (!mcpTools.some((candidate) => candidate.name === name)) return unknownToolResult(name);
     const parsed = validateToolArgs(name, 'mcp', args);
@@ -306,9 +323,23 @@ server.registerTool(
   {
     title: 'Load editor skill',
     description: "Load one area's guidance and member schemas.",
-    inputSchema: { name: z.enum(skillNames) },
+    inputSchema: { name: z.string().min(1).describe(SKILL_NAME_HINT) },
   },
   handlers.load_skill,
+);
+server.registerTool(
+  'search_skills',
+  {
+    title: 'Search skills',
+    description:
+      'Find skills by keyword: editor areas plus design, craft and profession guidance (e.g. "thumbnail", "lesson plan", "ducking"). Returns names to pass to load_skill.',
+    inputSchema: {
+      query: z.string().min(2),
+      limit: z.number().int().min(1).max(30).optional(),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  handlers.search_skills,
 );
 server.registerTool(
   'call_tool',
