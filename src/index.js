@@ -9,6 +9,9 @@ import {
   mcpTools,
   searchSkills,
   SKILL_NAME_HINT,
+  newGuideState,
+  toolGuidance,
+  briefGuidance,
   toolSchema,
   toolSkill,
   validateToolArgs,
@@ -55,11 +58,11 @@ const server = { registerTool: (...registration) => toolRegistrations.push(regis
 
 function createServer() {
   const mcp = new McpServer(SERVER_INFO, SERVER_OPTIONS);
-  const state = { loadedSkills: new Set() };
+  const loadedSkills = new Set();
+  // per client session: loaded skills, and the guide's notes and review counter
+  const state = { loadedSkills, guide: newGuideState(loadedSkills) };
   for (const [name, config, handler] of toolRegistrations) {
-    const isolatedHandler =
-      name === 'load_skill' || name === 'call_tool' ? (args) => handler(args, state) : handler;
-    mcp.registerTool(name, config, isolatedHandler);
+    mcp.registerTool(name, config, (args) => handler(args, state));
   }
   return mcp;
 }
@@ -101,6 +104,31 @@ async function run(method, params = {}, toolId) {
   } catch (err) {
     return { isError: true, content: [{ type: 'text', text: err.message }] };
   }
+}
+
+/**
+ * Puts the guide's notes for this call (skills to load, design brief, review reminders) at the top
+ * of a tool result, plus recommended skills on design brief results. `header` names the tool for
+ * call_tool results.
+ */
+function withGuidance(result, name, args, state, header) {
+  if (!result || result.isError) return result;
+  const notes = toolGuidance(state.guide, name, args);
+  if (name === 'get_design_brief' || name === 'set_design_brief') {
+    const text = [...(result.content ?? [])].reverse().find((part) => part.type === 'text')?.text;
+    try {
+      const note = text ? briefGuidance(JSON.parse(text)) : null;
+      if (note) notes.push(note);
+    } catch {
+      // not JSON: nothing to recommend from
+    }
+  }
+  const lines = [...(header ? [header] : []), ...notes];
+  if (!lines.length) return result;
+  return {
+    ...result,
+    content: [{ type: 'text', text: lines.join('\n') }, ...(result.content ?? [])],
+  };
 }
 
 function schemaHelp(name) {
@@ -292,30 +320,19 @@ const handlers = {
     const def = mcpTools.find((candidate) => candidate.name === name);
     if (!def) return unknownToolResult(name);
     const result = await (handlers[name] ?? ((input) => run(def.method, input, name)))(parsed.data);
-    const skill = toolSkill(name);
-    if (skill && !state.loadedSkills.has(skill)) {
-      result.content = [
-        {
-          type: 'text',
-          text: `Tool ${name} result. Skill ${skill} is not loaded; call load_skill with name "${skill}" for its guidance.`,
-        },
-        ...(result.content ?? []),
-      ];
-    } else if (result.content) {
-      result.content = [{ type: 'text', text: `Tool ${name} result.` }, ...result.content];
-    }
-    return result;
+    return withGuidance(result, name, parsed.data, state, `Tool ${name} result.`);
   },
 };
 for (const { name, method, ...config } of coreMcpTools) {
-  server.registerTool(name, config, async (args) => {
+  server.registerTool(name, config, async (args, state) => {
     const parsed = validateToolArgs(name, 'mcp', args);
     if (!parsed.success) return invalidArgsResult(name, parsed.error.issues);
     if (name === 'batch_edit') {
       const problem = checkBatchEdit('mcp', parsed.data.operations);
       if (problem) return batchEditErrorResult(problem);
     }
-    return (handlers[name] ?? ((input) => run(method, input, name)))(parsed.data);
+    const result = await (handlers[name] ?? ((input) => run(method, input, name)))(parsed.data);
+    return withGuidance(result, name, parsed.data, state);
   });
 }
 server.registerTool(
