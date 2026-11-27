@@ -62,7 +62,10 @@ function createServer() {
   // per client session: loaded skills, and the guide's notes and review counter
   const state = { loadedSkills, guide: newGuideState(loadedSkills) };
   for (const [name, config, handler] of toolRegistrations) {
-    mcp.registerTool(name, config, (args) => handler(args, state));
+    // a tool without an input schema is called with only the request context, not arguments
+    mcp.registerTool(name, config, (...call) =>
+      handler(config.inputSchema ? call[0] : {}, state),
+    );
   }
   return mcp;
 }
